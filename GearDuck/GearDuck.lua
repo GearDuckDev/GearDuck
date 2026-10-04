@@ -325,6 +325,15 @@ local function EnsureContextSettings(database)
     end
 end
 
+local function EnsureUpgradeArrowSetting(database)
+    if database.upgradeArrowDefaultApplied ~= true then
+        database.showUpgradeArrows = true
+        database.upgradeArrowDefaultApplied = true
+    elseif type(database.showUpgradeArrows) ~= "boolean" then
+        database.showUpgradeArrows = true
+    end
+end
+
 local function EnsureActivityWeightProfiles(legacyDatabase)
     local weightDatabase = rawget(_G, "GearDuckWeightsDB")
     if type(weightDatabase) ~= "table" then
@@ -449,6 +458,7 @@ end
 if type(gearDuckDB.setBonuses) ~= "table" then
     gearDuckDB.setBonuses = {}
 end
+EnsureUpgradeArrowSetting(gearDuckDB)
 EnsureContextSettings(gearDuckDB)
 local gearDuckWeightsDB = EnsureActivityWeightProfiles(gearDuckDB)
 rawset(_G, "GearDuckDB", gearDuckDB)
@@ -1591,6 +1601,18 @@ local function CreateOptionsPanel()
     classLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -54)
     classLabel:SetText("Class profile:")
 
+    local upgradeArrowsCheckbox = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+    upgradeArrowsCheckbox:SetSize(24, 24)
+    upgradeArrowsCheckbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 355, -48)
+    upgradeArrowsCheckbox:SetChecked(gearDuckDB.showUpgradeArrows)
+    local upgradeArrowsLabel = upgradeArrowsCheckbox:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    upgradeArrowsLabel:SetPoint("LEFT", upgradeArrowsCheckbox, "RIGHT", 2, 0)
+    upgradeArrowsLabel:SetText("Show upgrade arrows")
+    upgradeArrowsCheckbox:SetScript("OnClick", function(self)
+        gearDuckDB.showUpgradeArrows = self:GetChecked() == true
+        InvalidateEvaluationCache()
+    end)
+
     local _, playerClassFile = UnitClass("player")
     local selectedClassFile = CLASS_ACTIVITY_DEFAULTS[playerClassFile] and playerClassFile or "ROGUE"
     local activeTreeKey = GetActiveTalentTree()
@@ -1889,6 +1911,7 @@ local function CreateOptionsPanel()
         for _, context in ipairs(SCORING_CONTEXT_ORDER) do
             profileCheckboxes[context.key]:SetChecked(gearDuckDB.displayContexts[context.key])
         end
+        upgradeArrowsCheckbox:SetChecked(gearDuckDB.showUpgradeArrows)
         UIDropDownMenu_SetSelectedValue(activityDropdown, selectedActivityKey)
         UIDropDownMenu_SetText(activityDropdown, SCORING_CONTEXTS[selectedActivityKey] or "Unknown")
         UIDropDownMenu_SetSelectedValue(dropdown, selectedClassFile)
@@ -2007,6 +2030,12 @@ local function UpdateUpgradeIndicator(owner, evaluation)
     end
 
     local indicator = upgradeIndicators[owner]
+    if not gearDuckDB.showUpgradeArrows then
+        if indicator then
+            indicator:Hide()
+        end
+        return
+    end
     if IsCharacterPaneFrame(owner) then
         if indicator then
             indicator:Hide()
@@ -2280,6 +2309,9 @@ local function RegisterBaganatorUpgradeWidget()
         "GearDuck upgrade",
         "gearduck_upgrade",
         function(_, details)
+            if not gearDuckDB.showUpgradeArrows then
+                return false
+            end
             local evaluation = details and EvaluateItem(details.itemLink)
             if evaluation and evaluation.canEquip then
                 for _, comparison in ipairs(evaluation.comparisons) do
@@ -2674,6 +2706,7 @@ loaderFrame:SetScript("OnEvent", function(self, event, addonName)
             gearDuckDB.itemBonuses = gearDuckDB.itemBonuses or {}
             gearDuckDB.enchantBonuses = gearDuckDB.enchantBonuses or {}
             gearDuckDB.setBonuses = gearDuckDB.setBonuses or {}
+            EnsureUpgradeArrowSetting(gearDuckDB)
             EnsureContextSettings(gearDuckDB)
 
             if not gearDuckWeightsDB.legacyMigrationComplete then
