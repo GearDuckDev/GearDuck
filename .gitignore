@@ -1,0 +1,15 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor temporary and backup files
+*.swp
+*.swo
+*~
+
+# Locally generated archives
+*.zip
+
+# Personal Files
+TODO.md
