@@ -837,8 +837,8 @@ local function ForEachActiveTalent(callback)
                     local definitionInfo = entryInfo and entryInfo.definitionID
                         and getDefinitionInfo(entryInfo.definitionID)
                     local talentName = definitionInfo and definitionInfo.overrideName
-                    if not talentName and definitionInfo and definitionInfo.spellID and GetSpellInfo then
-                        talentName = GetSpellInfo(definitionInfo.spellID)
+                    if not talentName and definitionInfo and definitionInfo.spellID and getSpellInfo then
+                        talentName = getSpellInfo(definitionInfo.spellID)
                     end
                     callback(talentName, rank)
                 end
@@ -1643,7 +1643,7 @@ local function CreateOptionsPanel()
                 editBox.profileClass,
                 editBox.profileContext
             )
-            return activityProfile.hitCaps[editBox.hitType]
+            return activityProfile and activityProfile.hitCaps[editBox.hitType]
         end
 
         local profile = GetTalentWeightProfile(
@@ -1658,10 +1658,13 @@ local function CreateOptionsPanel()
         local value = tonumber(editBox:GetText())
         if editBox.hitType then
             if value and value == value and value >= 0 and value <= 100 then
-                GetActivityWeightProfile(
+                local activityProfile = GetActivityWeightProfile(
                     editBox.profileClass,
                     editBox.profileContext
-                ).hitCaps[editBox.hitType] = value
+                )
+                if activityProfile then
+                    activityProfile.hitCaps[editBox.hitType] = value
+                end
             end
         elseif value and value == value and math.abs(value) <= 1000 then
             GetTalentWeightProfile(
@@ -1839,8 +1842,10 @@ local function CreateOptionsPanel()
             profile[statName] = defaults.weights[statName] or 0
         end
         local activityProfile = GetActivityWeightProfile(selectedClassFile, selectedActivityKey)
-        activityProfile.hitCaps.physical = defaults.hitCaps.physical
-        activityProfile.hitCaps.spell = defaults.hitCaps.spell
+        if activityProfile then
+            activityProfile.hitCaps.physical = defaults.hitCaps.physical
+            activityProfile.hitCaps.spell = defaults.hitCaps.spell
+        end
         InvalidateEvaluationCache()
         RefreshEditBoxes()
     end)
