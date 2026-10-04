@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: GearDuck Weights
+## Notes: Persistent weight profiles for GearDuck.
+## Author: GearDuckDev
+## Version: 0.1.0
+## SavedVariables: GearDuckWeightsDB
+
+GearDuckWeights.lua

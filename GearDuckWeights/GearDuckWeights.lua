@@ -1,0 +1,1 @@
+GearDuckWeightsDB = GearDuckWeightsDB or {}

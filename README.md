@@ -16,25 +16,29 @@ GearDuck is a lightweight World of Warcraft: Forever addon that estimates item u
 - Shows separate Power Level comparisons for an enchanted weapon with and without its enchant.
 - Shows Questing comparisons by default, with options to show any combination of Questing, Raid, and PvP comparisons in that order. Each context has a configurable hit cap.
 - Supports manual Power Level values for proc/use effects and set-bonus thresholds.
-- Lets you edit class stat weights in the AddOns settings panel. Settings are saved in `GearDuckDB`.
+- Lets you edit separate class/activity stat-weight profiles in the AddOns settings panel. GearDuck stores them in the companion addon's SavedVariables file, independently of addon code updates.
 - Includes `/gd debug` to print item stats, weighted contributions, and comparison math to chat.
 
 ## Install
 
 1. In your WoW: Forever installation, open `Interface/AddOns`.
-2. Create a folder named `GearDuck` if it does not already exist.
-3. Copy `GearDuck.toc` and `GearDuck.lua` from this repository's `GearDuck` folder into that folder.
-4. Restart the client or type `/reload` if it is already running.
+2. Copy both the `GearDuck` and `GearDuckWeights` folders from this repository into `Interface/AddOns`. Keep them as sibling folders.
+3. Restart the client or type `/reload` if it is already running.
 
 The installed path should look like this:
 
 ```text
 Interface/
 └── AddOns/
-    └── GearDuck/
-        ├── GearDuck.lua
-        └── GearDuck.toc
+    ├── GearDuck/
+    │   ├── GearDuck.lua
+    │   └── GearDuck.toc
+    └── GearDuckWeights/
+        ├── GearDuckWeights.lua
+        └── GearDuckWeights.toc
 ```
+
+GearDuckWeights is a required companion addon. WoW writes its `GearDuckWeightsDB` SavedVariables to `WTF/.../SavedVariables/GearDuckWeights.lua` when the client saves addon data (normally at logout). The addon initializes all class/activity profiles with defaults on first launch; it cannot write arbitrary files into the installed addon folder.
 
 ## Commands
 
@@ -44,7 +48,8 @@ Interface/
 | `/gd debug` | Print the most recently hovered item's raw stats, weighted math, and slot comparisons. |
 | `/gd options` | Open the GearDuck settings panel. |
 | `/gd profile raid\|quest\|pvp` | Show only the selected profile. Use the AddOns options to select multiple profiles. |
-| `/gd hitcap <value>` | Set the selected hit-cap profile's cap in raw item-stat units. Use `0` to disable hit capping. |
+| `/gd hitcap <value>` | Set both physical and spell hit caps for the selected class/activity, in percent. |
+| `/gd hitcap physical\|spell <value>` | Set only the physical or spell hit cap for the selected class/activity. |
 | `/gd itembonus <value\|clear>` | Set or clear a manual Power Level value for the currently hovered item. |
 | `/gd enchantbonus <value\|clear>` | Set or clear a proc-only Power Level value for the hovered weapon enchant. |
 | `/gd setbonus <pieces> <value\|clear>` | Set or clear a manual value for a hovered item's set at a piece-count threshold. |
@@ -53,11 +58,11 @@ Interface/
 
 ## Configure Weights
 
-Use `/gd options` or open **Options → AddOns → GearDuck**. Select a class, then edit its numeric weights. The active character's talent tree is detected automatically; the tree picker is not needed. Press Enter or move focus away from a field to save its value. Set a weight to `0` to ignore that stat. **Reset this class** restores the addon's starting values for the selected profile.
+Use `/gd options` or open **Options → AddOns → GearDuck**. Select a class and an activity, then edit its numeric weights and physical/spell hit caps. The active character's talent tree is detected automatically; the tree picker is not needed. Press Enter or move focus away from a field to save its value. Set a weight to `0` to ignore that stat. **Restore defaults** resets the selected class/activity profile.
 
-Available weights include Strength, Agility, Stamina, Intellect, Spirit, Hit, Crit, Attack Power, Ranged Attack Power, Spell Power / Damage, Healing, Mana Regeneration, Defense, Dodge, Parry, Armor, Weapon DPS, Weapon Speed Preference, Weapon Skill, Weapon-Specific Crit %, and Weapon-Specific Extra Attack %. Each class/talent profile can be edited independently. Positive weapon-speed weights favor slower weapons; negative values favor faster weapons. Weapon-skill, crit, and extra-attack weights are heuristic Power Level units, not exact DPS simulations.
+Available weights include Strength, Agility, Stamina, Intellect, Spirit, Hit, Crit, Attack Power, Ranged Attack Power, Spell Power / Damage, Healing, Mana Regeneration, Defense, Dodge, Parry, Armor, Weapon DPS, Weapon Speed Preference, Weapon Skill, Weapon-Specific Crit %, and Weapon-Specific Extra Attack %. Each class/activity/talent profile can be edited independently. Positive weapon-speed weights favor slower weapons; negative values favor faster weapons. Weapon-skill, crit, and extra-attack weights are heuristic Power Level units, not exact DPS simulations.
 
-In the AddOns options, select one or more tooltip profiles; comparisons are displayed Questing, Raid, then PvP. The hit-cap profile selector edits a separate cap for each context. Enter the cap in the same raw units returned for Hit by the item API. A value of `0` leaves Hit uncapped; the defaults are `0` because Forever's exact rating-to-cap conversion can vary by ruleset and character level. Current cap calculations count equipped-item Hit only; account for hit from talents or buffs yourself when choosing a cap.
+In the AddOns options, select one or more tooltip profiles; comparisons are displayed Questing, Raid, then PvP. Hit caps are stored independently for every class/activity combination as percentages. Defaults are 5% physical / 3% spell for Questing and PvP, and 9% physical / 16% spell for Raid. Item Hit is read from the tooltip's green percentage line. Recognized talent hit bonuses are subtracted from the applicable cap; dual-wielding Warriors, Rogues, and Shamans use a 27% physical hit cap for raid white-hit scoring, with Shaman dual wield enabled only when its talent is active. Physical-only, spell-only, and hybrid classes use the relevant cap or the higher applicable cap. Buffs, PvP defensive stats, and talent names/values not in GearDuck's recognized Classic mapping are not included.
 
 ### Manual Effects
 
@@ -71,6 +76,6 @@ For set bonuses, hover an item from the set and use `/gd debug` to find its set 
 
 The addon reads item stats through the WoW item API and multiplies them by the selected class/talent profile's weights. For weapons, it reads damage and speed from localized tooltip formats and derives DPS as average damage divided by speed. The result is a relative estimate, not an in-game character rating.
 
-The initial profiles are editable, level-60 Classic-style placeholders, not simulation-derived weights. Talent-tree profiles begin with their class defaults and can be tuned independently. The scan recognizes Classic racial skill bonuses; Warrior/Rogue weapon-specific crit and sword extra-attack talents; Hunter ranged-weapon damage specialization; and Warrior/Paladin one- and two-handed damage specializations. Weapon skill affects its own term; crit and extra attacks use their separate profile weights; damage talents scale the parsed weapon DPS contribution. These are simplified expected-value heuristics and do not model rotations, proc interactions, or encounter-specific uptime. Stun/control talents are not counted as direct DPS. Other proc/use effects and set bonuses require manual values; proc-only enchant value can be set separately. Hit caps require a raw stat threshold for each context. Check `/gd debug` to inspect the active class/talent profile, item stats, and comparison math.
+The initial profiles are editable, level-60 Classic-style placeholders, not simulation-derived weights. Every class/activity combination is initialized separately from that class's starting stat weights, so activity profiles begin with the same baseline but can be customized independently; talent-tree profiles are also stored independently within each activity. The hit-cap talent scan recognizes Warrior/Paladin/Rogue Precision, Hunter Surefooted, Mage Arcane Focus, Priest Shadow Focus, Warlock Suppression, Druid Balance of Power, and Shaman Elemental Precision using Classic rank values, including Forever's three-rank Rogue Precision. Talent effects are heuristic and unsupported custom talent changes are not inferred. The rest of the scan recognizes Classic racial skill bonuses; Warrior/Rogue weapon-specific crit and sword extra-attack talents; Hunter ranged-weapon damage specialization; and Warrior/Paladin one- and two-handed damage specializations. Weapon skill affects its own term; crit and extra attacks use their separate profile weights; damage talents scale the parsed weapon DPS contribution. These are simplified expected-value heuristics and do not model rotations, proc interactions, or encounter-specific uptime. Stun/control talents are not counted as direct DPS. Other proc/use effects and set bonuses require manual values; proc-only enchant value can be set separately. Check `/gd debug` to inspect the active class/talent profile, item stats, and comparison math.
 
 Equipability uses hard-coded Classic class proficiency rules rather than the client equipability API. It assumes a character has trained weapon types that their class can learn; the addon does not inspect the character's learned weapon-skill lines or parse item-specific class restrictions. Polearm, armor-level, Shaman talent, and item required-level gates are checked explicitly.

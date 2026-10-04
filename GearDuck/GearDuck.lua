@@ -84,6 +84,12 @@ local CLASS_WEIGHTS = {
     },
 }
 
+local CLASS_ACTIVITY_HIT_CAPS = {
+    QUEST = { physical = 5, spell = 3 },
+    RAID = { physical = 9, spell = 16 },
+    PVP = { physical = 5, spell = 3 },
+}
+
 local CLASSIC_DEFAULT_WEIGHTS = {
     Strength = 0.8, Agility = 0.8, Stamina = 0.5, Intellect = 0.5,
     Spirit = 0.3, Hit = 0.8, Crit = 0.7, AttackPower = 0.7,
@@ -179,6 +185,8 @@ local optionsCategory
 local activeTalentTreeCache
 local activeTalentTreeScanned = false
 local weaponTalentEffectsCache
+local hitTalentBonusesCache
+local itemHitPercentCache = {}
 local shamanTwoHandedWeaponTalentActive = false
 
 local RACIAL_WEAPON_SKILL = {
@@ -244,6 +252,20 @@ local function CopyWeights(weights)
     return copy
 end
 
+local CLASS_ACTIVITY_DEFAULTS = {}
+for classFile, classWeights in pairs(CLASS_WEIGHTS) do
+    CLASS_ACTIVITY_DEFAULTS[classFile] = {}
+    for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+        CLASS_ACTIVITY_DEFAULTS[classFile][context.key] = {
+            weights = CopyWeights(classWeights),
+            hitCaps = {
+                physical = CLASS_ACTIVITY_HIT_CAPS[context.key].physical,
+                spell = CLASS_ACTIVITY_HIT_CAPS[context.key].spell,
+            },
+        }
+    end
+end
+
 local function EnsureWeightProfile(profile, defaults)
     if type(profile) ~= "table" then
         profile = {}
@@ -289,6 +311,111 @@ local function EnsureContextSettings(database)
     end
 end
 
+local function EnsureActivityWeightProfiles(legacyDatabase)
+    local weightDatabase = rawget(_G, "GearDuckWeightsDB")
+    if type(weightDatabase) ~= "table" then
+        weightDatabase = {}
+    end
+    if type(weightDatabase.profiles) ~= "table" then
+        weightDatabase.profiles = {}
+    end
+
+    local legacyWeights = type(legacyDatabase.weights) == "table" and legacyDatabase.weights or {}
+    local legacyTalentWeights = type(legacyDatabase.talentWeights) == "table"
+        and legacyDatabase.talentWeights or {}
+    local legacyHitCaps = type(legacyDatabase.hitCaps) == "table" and legacyDatabase.hitCaps or {}
+
+    for classFile, contextDefaults in pairs(CLASS_ACTIVITY_DEFAULTS) do
+        if type(weightDatabase.profiles[classFile]) ~= "table" then
+            weightDatabase.profiles[classFile] = {}
+        end
+        for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+            local contextKey = context.key
+            local defaults = contextDefaults[contextKey]
+            local profile = weightDatabase.profiles[classFile][contextKey]
+            if type(profile) ~= "table" then
+                profile = {}
+                weightDatabase.profiles[classFile][contextKey] = profile
+            end
+
+            if type(profile.weights) ~= "table" then
+                local legacyProfile = legacyWeights[classFile]
+                profile.weights = CopyWeights(type(legacyProfile) == "table" and legacyProfile or defaults.weights)
+            end
+            profile.weights = EnsureWeightProfile(profile.weights, defaults.weights)
+
+            if type(profile.hitCaps) ~= "table" then
+                profile.hitCaps = {
+                    physical = defaults.hitCaps.physical,
+                    spell = defaults.hitCaps.spell,
+                }
+                local migratedHitCap = tonumber(legacyHitCaps[contextKey])
+                if migratedHitCap and migratedHitCap > 0 then
+                    profile.hitCaps.physical = migratedHitCap
+                    profile.hitCaps.spell = migratedHitCap
+                end
+            else
+                for _, hitType in ipairs({ "physical", "spell" }) do
+                    if type(profile.hitCaps[hitType]) ~= "number" then
+                        profile.hitCaps[hitType] = defaults.hitCaps[hitType]
+                    end
+                end
+            end
+
+            if type(profile.talentWeights) ~= "table" then
+                profile.talentWeights = {}
+                local legacyProfiles = legacyTalentWeights[classFile]
+                if type(legacyProfiles) == "table" then
+                    for treeKey, legacyProfile in pairs(legacyProfiles) do
+                        if type(legacyProfile) == "table" then
+                            profile.talentWeights[treeKey] = CopyWeights(legacyProfile)
+                        end
+                    end
+                end
+            end
+
+            for treeKey, treeProfile in pairs(profile.talentWeights) do
+                profile.talentWeights[treeKey] = EnsureWeightProfile(treeProfile, defaults.weights)
+            end
+        end
+    end
+
+    rawset(_G, "GearDuckWeightsDB", weightDatabase)
+    return weightDatabase
+end
+
+local function MigrateLegacyWeightProfiles(legacyDatabase, weightDatabase)
+    local legacyWeights = type(legacyDatabase.weights) == "table" and legacyDatabase.weights or {}
+    local legacyTalentWeights = type(legacyDatabase.talentWeights) == "table"
+        and legacyDatabase.talentWeights or {}
+    local legacyHitCaps = type(legacyDatabase.hitCaps) == "table" and legacyDatabase.hitCaps or {}
+
+    for classFile, contextDefaults in pairs(CLASS_ACTIVITY_DEFAULTS) do
+        local legacyClassWeights = legacyWeights[classFile]
+        local legacyClassTalentWeights = legacyTalentWeights[classFile]
+        for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+            local profile = weightDatabase.profiles[classFile][context.key]
+            local defaults = contextDefaults[context.key]
+            if type(legacyClassWeights) == "table" then
+                profile.weights = EnsureWeightProfile(CopyWeights(legacyClassWeights), defaults.weights)
+            end
+            if type(legacyClassTalentWeights) == "table" then
+                for treeKey, treeWeights in pairs(legacyClassTalentWeights) do
+                    if type(treeWeights) == "table" then
+                        profile.talentWeights[treeKey] = EnsureWeightProfile(CopyWeights(treeWeights), defaults.weights)
+                    end
+                end
+            end
+
+            local legacyHitCap = tonumber(legacyHitCaps[context.key])
+            if legacyHitCap and legacyHitCap > 0 then
+                profile.hitCaps.physical = legacyHitCap
+                profile.hitCaps.spell = legacyHitCap
+            end
+        end
+    end
+end
+
 local gearDuckDB = rawget(_G, "GearDuckDB")
 if type(gearDuckDB) ~= "table" then
     gearDuckDB = {}
@@ -309,11 +436,7 @@ if type(gearDuckDB.setBonuses) ~= "table" then
     gearDuckDB.setBonuses = {}
 end
 EnsureContextSettings(gearDuckDB)
-
-for classFile, defaults in pairs(CLASS_WEIGHTS) do
-    gearDuckDB.weights[classFile] = EnsureWeightProfile(gearDuckDB.weights[classFile], defaults)
-end
-gearDuckDB.weights.DEFAULT = EnsureWeightProfile(gearDuckDB.weights.DEFAULT, CLASSIC_DEFAULT_WEIGHTS)
+local gearDuckWeightsDB = EnsureActivityWeightProfiles(gearDuckDB)
 rawset(_G, "GearDuckDB", gearDuckDB)
 
 local function GetActiveTalentTree()
@@ -426,35 +549,65 @@ local function GetActiveTalentTree()
     return nil, nil
 end
 
-local function GetTalentWeightProfile(classFile, defaults, treeKey)
+local function GetTalentWeightProfile(classFile, contextKey, treeKey)
+    local defaults = CLASS_ACTIVITY_DEFAULTS[classFile][contextKey].weights
+    local activityProfile = gearDuckWeightsDB.profiles[classFile][contextKey]
     if not treeKey then
-        return gearDuckDB.weights[classFile] or gearDuckDB.weights.DEFAULT
+        return activityProfile.weights
     end
 
-    local classProfiles = gearDuckDB.talentWeights[classFile]
-    if type(classProfiles) ~= "table" then
-        classProfiles = {}
-        gearDuckDB.talentWeights[classFile] = classProfiles
-    end
-
-    classProfiles[treeKey] = EnsureWeightProfile(classProfiles[treeKey], defaults)
-    return classProfiles[treeKey]
+    activityProfile.talentWeights[treeKey] = EnsureWeightProfile(
+        activityProfile.talentWeights[treeKey],
+        defaults
+    )
+    return activityProfile.talentWeights[treeKey]
 end
 
-local function GetPlayerClassWeights()
+local function GetActivityWeightProfile(classFile, contextKey)
+    local defaults = CLASS_ACTIVITY_DEFAULTS[classFile]
+    if not defaults or not defaults[contextKey] then
+        return nil
+    end
+
+    local classProfiles = gearDuckWeightsDB.profiles[classFile]
+    if type(classProfiles) ~= "table" then
+        classProfiles = {}
+        gearDuckWeightsDB.profiles[classFile] = classProfiles
+    end
+
+    local profile = classProfiles[contextKey]
+    if type(profile) ~= "table" then
+        profile = {}
+        classProfiles[contextKey] = profile
+    end
+    profile.weights = EnsureWeightProfile(profile.weights, defaults[contextKey].weights)
+    if type(profile.hitCaps) ~= "table" then
+        profile.hitCaps = {}
+    end
+    for _, hitType in ipairs({ "physical", "spell" }) do
+        if type(profile.hitCaps[hitType]) ~= "number" then
+            profile.hitCaps[hitType] = defaults[contextKey].hitCaps[hitType]
+        end
+    end
+    if type(profile.talentWeights) ~= "table" then
+        profile.talentWeights = {}
+    end
+    return profile
+end
+
+local function GetPlayerClassWeights(contextKey)
     local className, classFile
     if UnitClass then
         className, classFile = UnitClass("player")
     end
 
-    local weights = classFile and gearDuckDB.weights[classFile]
-    if weights then
+    if classFile and CLASS_ACTIVITY_DEFAULTS[classFile] then
         local treeKey, treeName, treePoints = GetActiveTalentTree()
-        local profile = GetTalentWeightProfile(classFile, weights, treeKey)
+        local profile = GetTalentWeightProfile(classFile, contextKey, treeKey)
         return className or classFile, classFile, profile, treeKey, treeName, treePoints
     end
 
-    return "Classic default", "DEFAULT", gearDuckDB.weights.DEFAULT, nil, nil
+    return "Classic default", "DEFAULT", CLASSIC_DEFAULT_WEIGHTS, nil, nil
 end
 
 local function GetWeaponTalentEffects()
@@ -569,6 +722,163 @@ local function GetItemStats(itemLink)
         return {}
     end
     return fetchStats(itemLink) or {}
+end
+
+local hitTooltipScanner
+local function GetItemHitPercent(itemLink)
+    if not itemLink then
+        return nil
+    end
+    if itemHitPercentCache[itemLink] ~= nil then
+        return itemHitPercentCache[itemLink] or nil
+    end
+
+    if not hitTooltipScanner then
+        hitTooltipScanner = CreateFrame("GameTooltip", "GearDuckHitTooltipScanner", UIParent, "GameTooltipTemplate")
+        hitTooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
+    end
+    hitTooltipScanner:ClearLines()
+    hitTooltipScanner:SetHyperlink(itemLink)
+
+    local hitPercent
+    for lineIndex = 1, hitTooltipScanner:NumLines() do
+        local line = _G["GearDuckHitTooltipScannerTextLeft" .. lineIndex]
+        local text = line and line:GetText()
+        if text then
+            local normalized = string.lower(text)
+            local amount = normalized:match("chance to hit by%s+([%d%.]+)%%")
+                or normalized:match("hit chance by%s+([%d%.]+)%%")
+            if amount then
+                hitPercent = tonumber(amount)
+                break
+            end
+        end
+    end
+    hitTooltipScanner:Hide()
+    if hitPercent then
+        itemHitPercentCache[itemLink] = hitPercent
+    else
+        itemHitPercentCache[itemLink] = false
+    end
+    return hitPercent
+end
+
+local HIT_TALENT_EFFECTS = {
+    precision = {
+        WARRIOR = { physicalPerRank = 1, maxRanks = 3 },
+        PALADIN = { physicalPerRank = 1, spellPerRank = 1, maxRanks = 3 },
+        ROGUE = { physicalPerRank = 1, maxRanks = 3 },
+    },
+    surefooted = { HUNTER = { physicalPerRank = 1, maxRanks = 3 } },
+    ["arcane focus"] = { MAGE = { spellPerRank = 2, maxRanks = 5 } },
+    ["shadow focus"] = { PRIEST = { spellPerRank = 2, maxRanks = 5 } },
+    suppression = { WARLOCK = { spellPerRank = 2, maxRanks = 5 } },
+    ["balance of power"] = { DRUID = { spellPerRank = 2, maxRanks = 2 } },
+    ["elemental precision"] = { SHAMAN = { spellPerRank = 1, maxRanks = 3 } },
+}
+
+local CLASS_HIT_TYPES = {
+    WARRIOR = { physical = true },
+    PALADIN = { physical = true, spell = true },
+    HUNTER = { physical = true },
+    ROGUE = { physical = true },
+    PRIEST = { spell = true },
+    SHAMAN = { physical = true, spell = true },
+    MAGE = { spell = true },
+    WARLOCK = { spell = true },
+    DRUID = { physical = true, spell = true },
+}
+
+local function ForEachActiveTalent(callback)
+    local _, _, _, configID = GetActiveTalentTree()
+    local traits = rawget(_G, "C_Traits")
+    local getTreeNodes = traits and rawget(traits, "GetTreeNodes")
+    local getNodeInfo = traits and rawget(traits, "GetNodeInfo")
+    local getEntryInfo = traits and rawget(traits, "GetEntryInfo")
+    local getDefinitionInfo = traits and rawget(traits, "GetDefinitionInfo")
+    local scannedModernConfig = false
+
+    if configID and getTreeNodes and getNodeInfo and getEntryInfo and getDefinitionInfo then
+        local configInfo = traits.GetConfigInfo(configID)
+        for _, treeID in ipairs(configInfo and configInfo.treeIDs or {}) do
+            for _, nodeID in ipairs(getTreeNodes(treeID) or {}) do
+                local nodeInfo = getNodeInfo(configID, nodeID)
+                local activeEntry = nodeInfo and nodeInfo.activeEntry
+                local rank = tonumber(activeEntry and activeEntry.rank)
+                    or tonumber(nodeInfo and nodeInfo.ranksPurchased)
+                    or 0
+                local entryID = activeEntry and activeEntry.entryID
+                if entryID and rank > 0 then
+                    local entryInfo = getEntryInfo(configID, entryID)
+                    local definitionInfo = entryInfo and entryInfo.definitionID
+                        and getDefinitionInfo(entryInfo.definitionID)
+                    local talentName = definitionInfo and definitionInfo.overrideName
+                    if not talentName and definitionInfo and definitionInfo.spellID and GetSpellInfo then
+                        talentName = GetSpellInfo(definitionInfo.spellID)
+                    end
+                    callback(talentName, rank)
+                end
+            end
+        end
+        scannedModernConfig = true
+    end
+
+    local getNumTalentTabs = rawget(_G, "GetNumTalentTabs")
+    local getNumTalents = rawget(_G, "GetNumTalents")
+    local getTalentInfo = rawget(_G, "GetTalentInfo")
+    if not scannedModernConfig and getNumTalentTabs and getNumTalents and getTalentInfo then
+        for tabIndex = 1, getNumTalentTabs() do
+            for talentIndex = 1, getNumTalents(tabIndex) do
+                local talentName, _, _, _, rank = getTalentInfo(tabIndex, talentIndex)
+                callback(talentName, rank)
+            end
+        end
+    end
+end
+
+local function GetHitTalentBonuses()
+    if hitTalentBonusesCache then
+        return hitTalentBonusesCache
+    end
+
+    local _, classFile = UnitClass("player")
+    local bonuses = { physical = 0, spell = 0, dualWield = false }
+    ForEachActiveTalent(function(talentName, rank)
+        local normalizedName = string.lower(talentName or "")
+        rank = tonumber(rank) or 0
+        local classEffect = HIT_TALENT_EFFECTS[normalizedName]
+            and HIT_TALENT_EFFECTS[normalizedName][classFile]
+        if classEffect and rank > 0 then
+            bonuses.physical = bonuses.physical
+                + math.min(rank, classEffect.maxRanks) * (classEffect.physicalPerRank or 0)
+            bonuses.spell = bonuses.spell
+                + math.min(rank, classEffect.maxRanks) * (classEffect.spellPerRank or 0)
+        end
+        if classFile == "SHAMAN" and normalizedName == "dual wield" and rank > 0 then
+            bonuses.dualWield = true
+        end
+    end)
+    hitTalentBonusesCache = bonuses
+    return bonuses
+end
+
+local function GetEffectiveHitCap(classFile, contextKey, activityProfile, dualWielding)
+    local caps = activityProfile.hitCaps
+    local talentBonuses = GetHitTalentBonuses()
+    local hitTypes = CLASS_HIT_TYPES[classFile] or { physical = true }
+    local physicalCap = math.max(0, caps.physical - talentBonuses.physical)
+    if contextKey == "RAID" and dualWielding then
+        physicalCap = math.max(0, math.max(caps.physical, 27) - talentBonuses.physical)
+    end
+    local spellCap = math.max(0, caps.spell - talentBonuses.spell)
+    local effectiveCap = 0
+    if hitTypes.physical then
+        effectiveCap = math.max(effectiveCap, physicalCap)
+    end
+    if hitTypes.spell then
+        effectiveCap = math.max(effectiveCap, spellCap)
+    end
+    return effectiveCap
 end
 
 local function GetItemMetadata(itemLink)
@@ -831,8 +1141,12 @@ local function ScoreItem(itemLink, weights)
     for statName, weight in pairs(weights) do
         if weight ~= 0 then
             local amount = 0
-            for _, key in ipairs(STAT_KEYS[statName]) do
-                amount = amount + (tonumber(stats[key]) or 0)
+            if statName == "Hit" then
+                amount = GetItemHitPercent(itemLink) or 0
+            else
+                for _, key in ipairs(STAT_KEYS[statName]) do
+                    amount = amount + (tonumber(stats[key]) or 0)
+                end
             end
 
             local contribution = amount * weight
@@ -921,14 +1235,6 @@ local function ScoreItem(itemLink, weights)
     return score, breakdown, stats
 end
 
-local function GetStatAmount(stats, statName)
-    local amount = 0
-    for _, key in ipairs(STAT_KEYS[statName] or {}) do
-        amount = amount + (tonumber(stats[key]) or 0)
-    end
-    return amount
-end
-
 local function GetEquippedSetCounts()
     local counts = {}
     for slot = 1, 19 do
@@ -981,22 +1287,6 @@ local function GetSetBonusDelta(itemSetID, replacedItems, setCounts)
         delta = delta + GetSetBonusScore(setID, newCount) - GetSetBonusScore(setID, currentCount)
     end
     return delta
-end
-
-local function GetHitCapCorrection(itemStats, replacedItems, equippedHit, hitWeight, hitCap)
-    if hitCap <= 0 or hitWeight == 0 then
-        return 0
-    end
-
-    local replacedHit = 0
-    for _, equippedItem in ipairs(replacedItems) do
-        replacedHit = replacedHit + GetStatAmount(equippedItem.stats, "Hit")
-    end
-    local candidateHit = GetStatAmount(itemStats, "Hit")
-    local rawHitDelta = candidateHit - replacedHit
-    local cappedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacedHit + candidateHit))
-        - math.min(hitCap, math.max(0, equippedHit))
-    return (cappedHitDelta - rawHitDelta) * hitWeight
 end
 
 local function FormatScore(score)
@@ -1054,85 +1344,129 @@ local function EvaluateItem(itemLink)
         return nil
     end
 
-    local className, classFile, classWeights, treeKey, treeName, treePoints = GetPlayerClassWeights()
+    local className, classFile = UnitClass("player")
     local canEquip, equipRestrictionReason = CanPlayerEquipItem(itemLink)
-    local itemScore, itemBreakdown, itemStats = ScoreItem(itemLink, classWeights)
     local itemClassID = GetItemClassInfo(itemLink)
     local unenchantedLink, enchantID = GetUnenchantedItemLink(itemLink)
     local isEnchantedWeapon = itemClassID == 2 and enchantID ~= nil
-    local itemScoreWithoutEnchant = itemScore
-    local itemStatsWithoutEnchant = itemStats
-    if isEnchantedWeapon then
-        local unenchantedBreakdown
-        itemScoreWithoutEnchant, unenchantedBreakdown, itemStatsWithoutEnchant = ScoreItem(unenchantedLink, classWeights)
-    end
     local itemID, itemSetID = GetItemMetadata(itemLink)
-    local equipped = {}
-    local slotComparisons = {}
+    local equippedLinks = {}
     local setCounts = GetEquippedSetCounts()
     local equippedHit = 0
     for slot = 1, 19 do
-        equippedHit = equippedHit + GetStatAmount(GetItemStats(GetInventoryItemLink("player", slot)), "Hit")
-    end
-    for _, slot in ipairs(slots) do
         local equippedLink = GetInventoryItemLink("player", slot)
-        local score, breakdown, stats = ScoreItem(equippedLink, classWeights)
-        local equippedItemID, equippedSetID = GetItemMetadata(equippedLink)
-        equipped[#equipped + 1] = {
-            slot = slot,
-            link = equippedLink,
-            itemID = equippedItemID,
-            setID = equippedSetID,
-            score = score,
-            breakdown = breakdown,
-            stats = stats,
-        }
-
-        if not replacesBothWeaponSlots then
-            slotComparisons[#slotComparisons + 1] = {
-                label = EQUIP_SLOT_LABELS[slot] or ("Slot " .. slot),
-                equippedScore = score,
-                delta = itemScore - score,
-                replacedItems = { equipped[#equipped] },
-            }
-        end
+        equippedLinks[slot] = equippedLink
+        equippedHit = equippedHit + (GetItemHitPercent(equippedLink) or 0)
     end
-
-    if replacesBothWeaponSlots then
-        local equippedScore = 0
-        for _, equippedItem in ipairs(equipped) do
-            equippedScore = equippedScore + equippedItem.score
-        end
-        slotComparisons[1] = {
-            label = "Both Hands",
-            equippedScore = equippedScore,
-            delta = itemScore - equippedScore,
-            replacedItems = equipped,
-        }
-    end
-
     local comparisons = {}
     local hitCaps = {}
+    local contextScores = {}
+    local equipped = {}
+    local itemStats
+    local itemScore
+    local itemBreakdown
+    local itemScoreWithoutEnchant
     for _, context in ipairs(SCORING_CONTEXT_ORDER) do
         if gearDuckDB.displayContexts[context.key] then
-            local hitCap = gearDuckDB.hitCaps[context.key] or 0
+            local classNameForContext, classFileForContext, classWeights, treeKey, treeName, treePoints =
+                GetPlayerClassWeights(context.key)
+            local activityProfile = GetActivityWeightProfile(classFileForContext, context.key)
+            local currentItemScore, currentBreakdown, currentItemStats = ScoreItem(itemLink, classWeights)
+            local currentItemScoreWithoutEnchant = currentItemScore
+            if isEnchantedWeapon then
+                currentItemScoreWithoutEnchant = ScoreItem(unenchantedLink, classWeights)
+            end
+            local dualWielding = false
+            if (classFileForContext == "WARRIOR" or classFileForContext == "ROGUE"
+                or (classFileForContext == "SHAMAN" and GetHitTalentBonuses().dualWield))
+                and equippedLinks[16] and equippedLinks[17] then
+                local mainHandClassID = GetItemClassInfo(equippedLinks[16])
+                local offHandClassID = GetItemClassInfo(equippedLinks[17])
+                dualWielding = mainHandClassID == 2 and offHandClassID == 2
+            end
+            local hitCap = GetEffectiveHitCap(classFileForContext, context.key, activityProfile, dualWielding)
             hitCaps[context.key] = hitCap
+
+            local contextEquipped = {}
+            local slotComparisons = {}
+            for _, slot in ipairs(slots) do
+                local equippedLink = equippedLinks[slot]
+                local score, breakdown, stats = ScoreItem(equippedLink, classWeights)
+                local equippedItemID, equippedSetID = GetItemMetadata(equippedLink)
+                local equippedItem = {
+                    slot = slot,
+                    link = equippedLink,
+                    itemID = equippedItemID,
+                    setID = equippedSetID,
+                    score = score,
+                    breakdown = breakdown,
+                    stats = stats,
+                    hitPercent = GetItemHitPercent(equippedLink) or 0,
+                }
+                contextEquipped[#contextEquipped + 1] = equippedItem
+                if not replacesBothWeaponSlots then
+                    slotComparisons[#slotComparisons + 1] = {
+                        label = EQUIP_SLOT_LABELS[slot] or ("Slot " .. slot),
+                        equippedScore = score,
+                        replacedItems = { equippedItem },
+                    }
+                end
+            end
+            if replacesBothWeaponSlots then
+                local equippedScore = 0
+                for _, equippedItem in ipairs(contextEquipped) do
+                    equippedScore = equippedScore + equippedItem.score
+                end
+                slotComparisons[1] = {
+                    label = "Both Hands",
+                    equippedScore = equippedScore,
+                    replacedItems = contextEquipped,
+                }
+            end
+
+            if not itemScore then
+                className = classNameForContext or className
+                classFile = classFileForContext
+                itemStats = currentItemStats
+                itemScore = currentItemScore
+                itemBreakdown = currentBreakdown
+                itemScoreWithoutEnchant = currentItemScoreWithoutEnchant
+                equipped = contextEquipped
+            end
+            contextScores[context.key] = {
+                itemScore = currentItemScore,
+                itemScoreWithoutEnchant = currentItemScoreWithoutEnchant,
+                treeKey = treeKey,
+                treeName = treeName,
+                treePoints = treePoints,
+            }
+
             for _, slotComparison in ipairs(slotComparisons) do
                 local comparison = {
                     profileKey = context.key,
                     profileName = context.name,
                     label = slotComparison.label,
                     equippedScore = slotComparison.equippedScore,
+                    itemScore = currentItemScore,
                     replacedItems = slotComparison.replacedItems,
-                    delta = slotComparison.delta,
                 }
                 local setBonusDelta = GetSetBonusDelta(itemSetID, comparison.replacedItems, setCounts)
-                comparison.delta = comparison.delta
-                    + GetHitCapCorrection(itemStats, comparison.replacedItems, equippedHit, classWeights.Hit or 0, hitCap)
+                local replacementHit = 0
+                for _, replacedItem in ipairs(comparison.replacedItems) do
+                    replacementHit = replacementHit + (replacedItem.hitPercent or 0)
+                end
+                local itemHitPercent = GetItemHitPercent(itemLink) or 0
+                local cappedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + itemHitPercent))
+                    - math.min(hitCap, math.max(0, equippedHit))
+                comparison.delta = currentItemScore - comparison.equippedScore
+                    + (cappedHitDelta - (itemHitPercent - replacementHit)) * (classWeights.Hit or 0)
                     + setBonusDelta
                 if isEnchantedWeapon then
-                    comparison.deltaWithoutEnchant = itemScoreWithoutEnchant - comparison.equippedScore
-                        + GetHitCapCorrection(itemStatsWithoutEnchant, comparison.replacedItems, equippedHit, classWeights.Hit or 0, hitCap)
+                    local unenchantedHitPercent = GetItemHitPercent(unenchantedLink) or 0
+                    local cappedUnenchantedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + unenchantedHitPercent))
+                        - math.min(hitCap, math.max(0, equippedHit))
+                    comparison.deltaWithoutEnchant = currentItemScoreWithoutEnchant - comparison.equippedScore
+                        + (cappedUnenchantedHitDelta - (unenchantedHitPercent - replacementHit)) * (classWeights.Hit or 0)
                         + setBonusDelta
                 end
                 comparisons[#comparisons + 1] = comparison
@@ -1155,9 +1489,7 @@ local function EvaluateItem(itemLink)
         itemStats = itemStats,
         className = className,
         classFile = classFile,
-        treeKey = treeKey,
-        treeName = treeName,
-        treePoints = treePoints,
+        contextScores = contextScores,
         hitCaps = hitCaps,
         equipped = equipped,
         comparisons = comparisons,
@@ -1198,11 +1530,18 @@ local function PrintDebug(evaluation)
     for _, context in ipairs(SCORING_CONTEXT_ORDER) do
         local hitCap = evaluation.hitCaps[context.key]
         if hitCap ~= nil then
-            Print(string.format("%s hit cap: %s raw stat units (0 = uncapped)", context.name, FormatScore(hitCap)))
+            Print(string.format("%s effective hit cap: %s%%", context.name, FormatScore(hitCap)))
         end
     end
-    if evaluation.treeName then
-        Print(string.format("Active talent profile: %s (%s points; %s)", evaluation.treeName, tostring(evaluation.treePoints or "?"), evaluation.treeKey))
+    local activeContextProfile
+    for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+        activeContextProfile = evaluation.contextScores[context.key]
+        if activeContextProfile then
+            break
+        end
+    end
+    if activeContextProfile and activeContextProfile.treeName then
+        Print(string.format("Active talent profile: %s (%s points; %s)", activeContextProfile.treeName, tostring(activeContextProfile.treePoints or "?"), activeContextProfile.treeKey))
     end
     if evaluation.itemSetID then
         Print(string.format("Item set ID: %d", evaluation.itemSetID))
@@ -1212,7 +1551,7 @@ local function PrintDebug(evaluation)
     end
 
     for _, comparison in ipairs(evaluation.comparisons) do
-        Print(string.format("%s PL vs %s: %s - %s = %s", comparison.profileName, comparison.label, FormatScore(evaluation.itemScore), FormatScore(comparison.equippedScore), FormatScore(comparison.delta)))
+        Print(string.format("%s PL vs %s: %s - %s = %s", comparison.profileName, comparison.label, FormatScore(comparison.itemScore), FormatScore(comparison.equippedScore), FormatScore(comparison.delta)))
     end
 end
 
@@ -1230,49 +1569,76 @@ local function CreateOptionsPanel()
     classLabel:SetText("Class profile:")
 
     local _, playerClassFile = UnitClass("player")
-    local selectedClassFile = gearDuckDB.weights[playerClassFile] and playerClassFile or "ROGUE"
+    local selectedClassFile = CLASS_ACTIVITY_DEFAULTS[playerClassFile] and playerClassFile or "ROGUE"
     local activeTreeKey = GetActiveTalentTree()
     local selectedTreeKey = selectedClassFile == playerClassFile and activeTreeKey or nil
-    local selectedHitCapContext = gearDuckDB.hitCapContext
+    local selectedActivityKey = gearDuckDB.hitCapContext
+    if not CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey] then
+        selectedActivityKey = "QUEST"
+        gearDuckDB.hitCapContext = selectedActivityKey
+    end
     local editBoxes = {}
     local profileCheckboxes = {}
-    local hitCapEditBox
-    local contextDropdown
+    local physicalHitCapEditBox
+    local spellHitCapEditBox
+    local activityDropdown
     local scrollFrame
     local refreshPanelOnUpdate = false
 
     local function FormatWeight(value)
-        return string.format("%.3f", value):gsub("0+$", ""):gsub("%.$", "")
+        local formatted = string.format("%.3f", tonumber(value) or 0)
+        formatted = formatted:gsub("0+$", "")
+        formatted = formatted:gsub("%.$", "")
+        return formatted
+    end
+
+    local function GetEditBoxValue(editBox)
+        if editBox.hitType then
+            local activityProfile = GetActivityWeightProfile(
+                editBox.profileClass,
+                editBox.profileContext
+            )
+            return activityProfile.hitCaps[editBox.hitType]
+        end
+
+        local profile = GetTalentWeightProfile(
+            editBox.profileClass,
+            editBox.profileContext,
+            editBox.profileTree
+        )
+        return profile[editBox.statName]
     end
 
     local function SaveEditBox(editBox)
         local value = tonumber(editBox:GetText())
-        if value and value == value and math.abs(value) <= 1000 then
-            local profile = GetTalentWeightProfile(
+        if editBox.hitType then
+            if value and value == value and value >= 0 and value <= 100 then
+                GetActivityWeightProfile(
+                    editBox.profileClass,
+                    editBox.profileContext
+                ).hitCaps[editBox.hitType] = value
+            end
+        elseif value and value == value and math.abs(value) <= 1000 then
+            GetTalentWeightProfile(
                 editBox.profileClass,
-                gearDuckDB.weights[editBox.profileClass],
+                editBox.profileContext,
                 editBox.profileTree
-            )
-            profile[editBox.statName] = value
+            )[editBox.statName] = value
         end
-        local profile = GetTalentWeightProfile(
-            editBox.profileClass,
-            gearDuckDB.weights[editBox.profileClass],
-            editBox.profileTree
-        )
-        editBox:SetText(FormatWeight(profile[editBox.statName]))
+
+        editBox:SetText(FormatWeight(GetEditBoxValue(editBox)))
     end
 
     local function RefreshEditBoxes()
-        local profile = GetTalentWeightProfile(
-            selectedClassFile,
-            gearDuckDB.weights[selectedClassFile],
-            selectedTreeKey
-        )
+        local defaults = CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey]
         for _, editBox in ipairs(editBoxes) do
             editBox.profileClass = selectedClassFile
+            editBox.profileContext = selectedActivityKey
             editBox.profileTree = selectedTreeKey
-            editBox:SetText(FormatWeight(profile[editBox.statName]))
+            local defaultValue = editBox.hitType
+                and defaults.hitCaps[editBox.hitType]
+                or defaults.weights[editBox.statName]
+            editBox:SetText(FormatWeight(GetEditBoxValue(editBox) or defaultValue))
             editBox:SetCursorPosition(0)
         end
     end
@@ -1280,12 +1646,6 @@ local function CreateOptionsPanel()
     local function CommitEditBoxes()
         for _, editBox in ipairs(editBoxes) do
             SaveEditBox(editBox)
-        end
-    end
-
-    local function RefreshHitCap()
-        if hitCapEditBox then
-            hitCapEditBox:SetText(FormatWeight(tonumber(gearDuckDB.hitCaps[selectedHitCapContext]) or 0))
         end
     end
 
@@ -1346,84 +1706,107 @@ local function CreateOptionsPanel()
         profileCheckboxes[context.key] = checkbox
     end
 
-    local hitCapProfileLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    hitCapProfileLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -114)
-    hitCapProfileLabel:SetText("Hit cap profile:")
+    local activityLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    activityLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -114)
+    activityLabel:SetText("Edit activity:")
 
-    contextDropdown = CreateFrame("Frame", "GearDuckHitCapProfileDropdown", panel, "UIDropDownMenuTemplate")
-    contextDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", 120, -104)
-    UIDropDownMenu_SetWidth(contextDropdown, 170)
-    UIDropDownMenu_Initialize(contextDropdown, function(self, level)
+    activityDropdown = CreateFrame("Frame", "GearDuckActivityProfileDropdown", panel, "UIDropDownMenuTemplate")
+    activityDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", 120, -104)
+    UIDropDownMenu_SetWidth(activityDropdown, 170)
+    UIDropDownMenu_Initialize(activityDropdown, function(self, level)
         for _, context in ipairs(SCORING_CONTEXT_ORDER) do
             local contextKey = context.key
             local contextName = context.name
             local info = UIDropDownMenu_CreateInfo()
             info.text = contextName
             info.value = contextKey
-            info.checked = selectedHitCapContext == contextKey
+            info.checked = selectedActivityKey == contextKey
             info.func = function()
-                selectedHitCapContext = contextKey
+                CommitEditBoxes()
+                selectedActivityKey = contextKey
                 gearDuckDB.hitCapContext = contextKey
-                UIDropDownMenu_SetSelectedValue(contextDropdown, selectedHitCapContext)
-                UIDropDownMenu_SetText(contextDropdown, contextName)
-                RefreshHitCap()
+                UIDropDownMenu_SetSelectedValue(activityDropdown, selectedActivityKey)
+                UIDropDownMenu_SetText(activityDropdown, contextName)
+                RefreshEditBoxes()
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UIDropDownMenu_SetSelectedValue(contextDropdown, selectedHitCapContext)
-    UIDropDownMenu_SetText(contextDropdown, SCORING_CONTEXTS[selectedHitCapContext])
+    UIDropDownMenu_SetSelectedValue(activityDropdown, selectedActivityKey)
+    UIDropDownMenu_SetText(activityDropdown, SCORING_CONTEXTS[selectedActivityKey])
 
-    local hitCapLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    hitCapLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 330, -114)
-    hitCapLabel:SetText("Hit cap (raw units):")
+    local physicalHitCapLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    physicalHitCapLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -145)
+    physicalHitCapLabel:SetText("Physical hit cap (%):")
 
-    hitCapEditBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
-    hitCapEditBox:SetSize(70, 22)
-    hitCapEditBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 465, -111)
-    hitCapEditBox:SetAutoFocus(false)
-    hitCapEditBox:SetTextInsets(5, 5, 0, 0)
-    hitCapEditBox:SetScript("OnEnterPressed", function(self)
-        local value = tonumber(self:GetText())
-        if value and value >= 0 and value <= 100000 then
-            gearDuckDB.hitCaps[selectedHitCapContext] = value
-        end
-        RefreshHitCap()
+    physicalHitCapEditBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    physicalHitCapEditBox:SetSize(60, 22)
+    physicalHitCapEditBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 155, -142)
+    physicalHitCapEditBox:SetAutoFocus(false)
+    physicalHitCapEditBox:SetTextInsets(5, 5, 0, 0)
+    physicalHitCapEditBox:SetScript("OnEnterPressed", function(self)
+        SaveEditBox(self)
+        RefreshEditBoxes()
         self:ClearFocus()
     end)
-    hitCapEditBox:SetScript("OnEditFocusLost", function(self)
-        local value = tonumber(self:GetText())
-        if value and value >= 0 and value <= 100000 then
-            gearDuckDB.hitCaps[selectedHitCapContext] = value
-        end
-        RefreshHitCap()
+    physicalHitCapEditBox:SetScript("OnEditFocusLost", SaveEditBox)
+    physicalHitCapEditBox:SetScript("OnEscapePressed", function()
+        RefreshEditBoxes()
+        physicalHitCapEditBox:ClearFocus()
     end)
-    RefreshHitCap()
+    physicalHitCapEditBox.hitType = "physical"
+    editBoxes[#editBoxes + 1] = physicalHitCapEditBox
+
+    local spellHitCapLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    spellHitCapLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 250, -145)
+    spellHitCapLabel:SetText("Spell hit cap (%):")
+
+    spellHitCapEditBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    spellHitCapEditBox:SetSize(60, 22)
+    spellHitCapEditBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 380, -142)
+    spellHitCapEditBox:SetAutoFocus(false)
+    spellHitCapEditBox:SetTextInsets(5, 5, 0, 0)
+    spellHitCapEditBox:SetScript("OnEnterPressed", function(self)
+        SaveEditBox(self)
+        RefreshEditBoxes()
+        self:ClearFocus()
+    end)
+    spellHitCapEditBox:SetScript("OnEditFocusLost", SaveEditBox)
+    spellHitCapEditBox:SetScript("OnEscapePressed", function()
+        RefreshEditBoxes()
+        spellHitCapEditBox:ClearFocus()
+    end)
+    spellHitCapEditBox.hitType = "spell"
+    editBoxes[#editBoxes + 1] = spellHitCapEditBox
+    RefreshEditBoxes()
 
     local resetButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    resetButton:SetSize(126, 24)
-    resetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 460, -144)
-    resetButton:SetText("Reset this class")
+    resetButton:SetSize(150, 24)
+    resetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 460, -142)
+    resetButton:SetText("Restore defaults")
     resetButton:SetScript("OnClick", function()
-        local defaults = CLASS_WEIGHTS[selectedClassFile] or CLASSIC_DEFAULT_WEIGHTS
+        local defaults = CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey]
         local profile = GetTalentWeightProfile(
             selectedClassFile,
-            defaults,
+            selectedActivityKey,
             selectedTreeKey
         )
         for _, statName in ipairs(STAT_ORDER) do
-            profile[statName] = defaults[statName] or 0
+            profile[statName] = defaults.weights[statName] or 0
         end
+        local activityProfile = GetActivityWeightProfile(selectedClassFile, selectedActivityKey)
+        activityProfile.hitCaps.physical = defaults.hitCaps.physical
+        activityProfile.hitCaps.spell = defaults.hitCaps.spell
         RefreshEditBoxes()
     end)
 
     local helpText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    helpText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -145)
+    helpText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -175)
     helpText:SetWidth(410)
-    helpText:SetText("The active talent tree is detected automatically. Weapon skill includes supported racials and talents; hit cap excludes talents and buffs.")
+    helpText:SetText("Active talent weights are detected automatically. Hit caps subtract recognized talent bonuses; buffs are not included.")
 
     scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -176)
+    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -206)
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -34, 18)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
@@ -1443,6 +1826,7 @@ local function CreateOptionsPanel()
         editBox:SetTextInsets(5, 5, 0, 0)
         editBox.statName = statName
         editBox.profileClass = selectedClassFile
+        editBox.profileContext = selectedActivityKey
         editBox.profileTree = selectedTreeKey
         editBox:SetScript("OnEnterPressed", function(self)
             SaveEditBox(self)
@@ -1450,12 +1834,7 @@ local function CreateOptionsPanel()
         end)
         editBox:SetScript("OnEditFocusLost", SaveEditBox)
         editBox:SetScript("OnEscapePressed", function(self)
-            local profile = GetTalentWeightProfile(
-                self.profileClass,
-                gearDuckDB.weights[self.profileClass],
-                self.profileTree
-            )
-            self:SetText(FormatWeight(profile[self.statName]))
+            RefreshEditBoxes()
             self:ClearFocus()
         end)
         editBoxes[#editBoxes + 1] = editBox
@@ -1479,12 +1858,16 @@ local function CreateOptionsPanel()
     local function RefreshOptionsPanel()
         local activeKey = GetActiveTalentTree()
         selectedTreeKey = selectedClassFile == playerClassFile and activeKey or nil
-        selectedHitCapContext = gearDuckDB.hitCapContext
+        selectedActivityKey = gearDuckDB.hitCapContext
+        if not CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey] then
+            selectedActivityKey = "QUEST"
+            gearDuckDB.hitCapContext = selectedActivityKey
+        end
         for _, context in ipairs(SCORING_CONTEXT_ORDER) do
             profileCheckboxes[context.key]:SetChecked(gearDuckDB.displayContexts[context.key])
         end
-        UIDropDownMenu_SetSelectedValue(contextDropdown, selectedHitCapContext)
-        UIDropDownMenu_SetText(contextDropdown, SCORING_CONTEXTS[selectedHitCapContext] or "Unknown")
+        UIDropDownMenu_SetSelectedValue(activityDropdown, selectedActivityKey)
+        UIDropDownMenu_SetText(activityDropdown, SCORING_CONTEXTS[selectedActivityKey] or "Unknown")
         UIDropDownMenu_SetSelectedValue(dropdown, selectedClassFile)
         for _, classInfo in ipairs(CLASS_OPTIONS) do
             if classInfo.file == selectedClassFile then
@@ -1494,7 +1877,6 @@ local function CreateOptionsPanel()
         end
 
         RefreshEditBoxes()
-        RefreshHitCap()
     end
     panel.RefreshGearDuckOptions = RefreshOptionsPanel
 
@@ -1521,6 +1903,7 @@ playerBuildFrame:SetScript("OnEvent", function()
     activeTalentTreeCache = nil
     activeTalentTreeScanned = false
     weaponTalentEffectsCache = nil
+    hitTalentBonusesCache = nil
     shamanTwoHandedWeaponTalentActive = false
     if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
         optionsPanel:RefreshGearDuckOptions()
@@ -1540,6 +1923,10 @@ local function GetTooltipItemLink(tooltip, data)
 end
 
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
+    if tooltip == hitTooltipScanner then
+        return
+    end
+
     local itemLink = GetTooltipItemLink(tooltip, data)
     local evaluation = EvaluateItem(itemLink)
 
@@ -1573,7 +1960,8 @@ local function PrintHelp()
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd debug|r - Print the hovered item's stats and Power Level math.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd options|r - Open GearDuck's AddOns settings panel.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd profile <raid|quest|pvp>|r - Show only the selected profile.")
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd hitcap <value>|r - Set the selected hit-cap profile in raw item-stat units; 0 disables it.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd hitcap <value>|r - Set both hit caps for the selected class/activity.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd hitcap <physical|spell> <value>|r - Set one hit cap as a percentage.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd itembonus <value|clear>|r - Set/clear the hovered item's manual effect score.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd enchantbonus <value|clear>|r - Set/clear a proc-only bonus for the hovered enchant.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd setbonus <pieces> <value|clear>|r - Set/clear a hovered set's threshold score.")
@@ -1670,16 +2058,29 @@ SlashCmdList.GEARDUCK = function(message)
         return
     end
 
-    local hitCapValue = command:match("^hitcap%s+([%+%-]?[%d%.]+)$")
+    local hitCapType, typedHitCapValue = command:match("^hitcap%s+(%a+)%s+([%+%-]?[%d%.]+)$")
+    if hitCapType ~= "physical" and hitCapType ~= "spell" then
+        hitCapType = nil
+        typedHitCapValue = nil
+    end
+    local legacyHitCapValue = command:match("^hitcap%s+([%+%-]?[%d%.]+)$")
+    local hitCapValue = typedHitCapValue or legacyHitCapValue
     if hitCapValue then
         local value = tonumber(hitCapValue)
-        if value and value >= 0 and value <= 100000 then
+        if value and value >= 0 and value <= 100 then
+            local _, classFile = UnitClass("player")
             local contextKey = gearDuckDB.hitCapContext
-            gearDuckDB.hitCaps[contextKey] = value
-            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff33ccffGearDuck:|r %s hit cap set to %s raw item-stat units.", SCORING_CONTEXTS[contextKey], value))
+            local hitCaps = gearDuckWeightsDB.profiles[classFile][contextKey].hitCaps
+            if hitCapType then
+                hitCaps[hitCapType] = value
+            else
+                hitCaps.physical = value
+                hitCaps.spell = value
+            end
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff33ccffGearDuck:|r %s %s hit cap set to %s%%.", SCORING_CONTEXTS[contextKey], hitCapType or "physical and spell", value))
             RefreshLastEvaluation()
         else
-            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Hit cap must be between 0 and 100000.")
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Hit cap must be between 0 and 100 percent.")
         end
         return
     end
@@ -1777,11 +2178,16 @@ loaderFrame:SetScript("OnEvent", function(self, event, addonName)
             gearDuckDB.enchantBonuses = gearDuckDB.enchantBonuses or {}
             gearDuckDB.setBonuses = gearDuckDB.setBonuses or {}
             EnsureContextSettings(gearDuckDB)
-            
-            for classFile, defaults in pairs(CLASS_WEIGHTS) do
-                gearDuckDB.weights[classFile] = EnsureWeightProfile(gearDuckDB.weights[classFile], defaults)
+
+            if not gearDuckWeightsDB.legacyMigrationComplete then
+                MigrateLegacyWeightProfiles(gearDuckDB, gearDuckWeightsDB)
+                gearDuckWeightsDB.legacyMigrationComplete = true
             end
-            gearDuckDB.weights.DEFAULT = EnsureWeightProfile(gearDuckDB.weights.DEFAULT, CLASSIC_DEFAULT_WEIGHTS)
+            gearDuckDB.weights = {}
+            gearDuckDB.talentWeights = {}
+            gearDuckDB.hitCaps = {}
+            gearDuckWeightsDB = EnsureActivityWeightProfiles(gearDuckDB)
+            rawset(_G, "GearDuckDB", gearDuckDB)
             if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
                 optionsPanel:RefreshGearDuckOptions()
             end

@@ -1,3 +1,9 @@
 ignore:
   - README.md
   - .vscode
+
+package-as: GearDuck
+
+move-folders:
+  GearDuck: GearDuck
+  GearDuckWeights: GearDuckWeights
