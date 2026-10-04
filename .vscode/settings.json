@@ -23,7 +23,8 @@
         "DEFAULT_CHAT_FRAME",
         "UIDropDownMenu_SetText",
         "UIDropDownMenu_AddButton",
-        "UIDropDownMenu_CreateInfo"
+        "UIDropDownMenu_CreateInfo",
+        "UIParent"
     ],
     "Lua.type.weakUnionCheck": true
 }
