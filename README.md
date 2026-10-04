@@ -14,7 +14,7 @@ GearDuck is a lightweight World of Warcraft: Forever addon that estimates item u
 - Labels comparisons as upgrades, sidegrades, or downgrades.
 - Includes weapon DPS and weapon speed in scoring when the item tooltip exposes damage and speed values.
 - Shows separate Power Level comparisons for an enchanted weapon with and without its enchant.
-- Supports switchable raid, questing, and PvP contexts, with a configurable hit cap for each context.
+- Shows Questing comparisons by default, with options to show any combination of Questing, Raid, and PvP comparisons in that order. Each context has a configurable hit cap.
 - Supports manual Power Level values for proc/use effects and set-bonus thresholds.
 - Lets you edit class stat weights in the AddOns settings panel. Settings are saved in `GearDuckDB`.
 - Includes `/gd debug` to print item stats, weighted contributions, and comparison math to chat.
@@ -43,8 +43,8 @@ Interface/
 | `/gd help` | Show the addon command list. This is also shown by `/gd` with no argument. |
 | `/gd debug` | Print the most recently hovered item's raw stats, weighted math, and slot comparisons. |
 | `/gd options` | Open the GearDuck settings panel. |
-| `/gd profile raid\|quest\|pvp` | Select the activity context used for comparisons. |
-| `/gd hitcap <value>` | Set the current context's hit cap in raw item-stat units. Use `0` to disable hit capping. |
+| `/gd profile raid\|quest\|pvp` | Show only the selected profile. Use the AddOns options to select multiple profiles. |
+| `/gd hitcap <value>` | Set the selected hit-cap profile's cap in raw item-stat units. Use `0` to disable hit capping. |
 | `/gd itembonus <value\|clear>` | Set or clear a manual Power Level value for the currently hovered item. |
 | `/gd enchantbonus <value\|clear>` | Set or clear a proc-only Power Level value for the hovered weapon enchant. |
 | `/gd setbonus <pieces> <value\|clear>` | Set or clear a manual value for a hovered item's set at a piece-count threshold. |
@@ -57,7 +57,7 @@ Use `/gd options` or open **Options → AddOns → GearDuck**. Select a class, t
 
 Available weights include Strength, Agility, Stamina, Intellect, Spirit, Hit, Crit, Attack Power, Ranged Attack Power, Spell Power / Damage, Healing, Mana Regeneration, Defense, Dodge, Parry, Armor, Weapon DPS, Weapon Speed Preference, Weapon Skill, Weapon-Specific Crit %, and Weapon-Specific Extra Attack %. Each class/talent profile can be edited independently. Positive weapon-speed weights favor slower weapons; negative values favor faster weapons. Weapon-skill, crit, and extra-attack weights are heuristic Power Level units, not exact DPS simulations.
 
-The activity selector stores a separate hit cap for raid, questing, and PvP. Enter the cap in the same raw units returned for Hit by the item API. A value of `0` leaves Hit uncapped; the defaults are `0` because Forever's exact rating-to-cap conversion can vary by ruleset and character level. Current cap calculations count equipped-item Hit only; account for hit from talents or buffs yourself when choosing a cap.
+In the AddOns options, select one or more tooltip profiles; comparisons are displayed Questing, Raid, then PvP. The hit-cap profile selector edits a separate cap for each context. Enter the cap in the same raw units returned for Hit by the item API. A value of `0` leaves Hit uncapped; the defaults are `0` because Forever's exact rating-to-cap conversion can vary by ruleset and character level. Current cap calculations count equipped-item Hit only; account for hit from talents or buffs yourself when choosing a cap.
 
 ### Manual Effects
 

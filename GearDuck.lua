@@ -225,9 +225,15 @@ local TALENT_WEAPON_EFFECTS = {
 }
 
 local SCORING_CONTEXTS = {
-    RAID = "Level-63 raid boss",
+    RAID = "Raid",
     QUEST = "Questing",
     PVP = "PvP",
+}
+
+local SCORING_CONTEXT_ORDER = {
+    { key = "QUEST", name = "Questing" },
+    { key = "RAID", name = "Raid" },
+    { key = "PVP", name = "PvP" },
 }
 
 local function CopyWeights(weights)
@@ -252,6 +258,37 @@ local function EnsureWeightProfile(profile, defaults)
     return profile
 end
 
+local function EnsureContextSettings(database)
+    if type(database.hitCaps) ~= "table" then
+        database.hitCaps = {}
+    end
+    for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+        if type(database.hitCaps[context.key]) ~= "number" then
+            database.hitCaps[context.key] = 0
+        end
+    end
+
+    if type(database.displayContexts) ~= "table" then
+        database.displayContexts = {}
+        for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+            database.displayContexts[context.key] = context.key == "QUEST"
+        end
+    else
+        local hasDisplayedContext = false
+        for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+            database.displayContexts[context.key] = database.displayContexts[context.key] == true
+            hasDisplayedContext = hasDisplayedContext or database.displayContexts[context.key]
+        end
+        if not hasDisplayedContext then
+            database.displayContexts.QUEST = true
+        end
+    end
+
+    if not SCORING_CONTEXTS[database.hitCapContext] then
+        database.hitCapContext = "QUEST"
+    end
+end
+
 local gearDuckDB = rawget(_G, "GearDuckDB")
 if type(gearDuckDB) ~= "table" then
     gearDuckDB = {}
@@ -271,12 +308,7 @@ end
 if type(gearDuckDB.setBonuses) ~= "table" then
     gearDuckDB.setBonuses = {}
 end
-if type(gearDuckDB.hitCaps) ~= "table" then
-    gearDuckDB.hitCaps = { RAID = 0, QUEST = 0, PVP = 0 }
-end
-if not SCORING_CONTEXTS[gearDuckDB.context] then
-    gearDuckDB.context = "RAID"
-end
+EnsureContextSettings(gearDuckDB)
 
 for classFile, defaults in pairs(CLASS_WEIGHTS) do
     gearDuckDB.weights[classFile] = EnsureWeightProfile(gearDuckDB.weights[classFile], defaults)
@@ -974,7 +1006,7 @@ local function FormatScore(score)
     return string.format("%.1f", score)
 end
 
-local function FormatPowerLevelLine(label, delta)
+local function FormatPowerLevelLine(profileName, label, delta)
     local status
     local color
 
@@ -995,7 +1027,7 @@ local function FormatPowerLevelLine(label, delta)
         formattedDelta = "+" .. formattedDelta
     end
 
-    return color .. "Power Level: " .. label .. " " .. formattedDelta .. " (" .. status .. ")|r"
+    return color .. profileName .. " PL: " .. label .. " " .. formattedDelta .. " (" .. status .. ")|r"
 end
 
 local function GetReplacementSlots(itemLink)
@@ -1036,14 +1068,12 @@ local function EvaluateItem(itemLink)
     end
     local itemID, itemSetID = GetItemMetadata(itemLink)
     local equipped = {}
-    local comparisons = {}
+    local slotComparisons = {}
     local setCounts = GetEquippedSetCounts()
     local equippedHit = 0
     for slot = 1, 19 do
         equippedHit = equippedHit + GetStatAmount(GetItemStats(GetInventoryItemLink("player", slot)), "Hit")
     end
-    local hitCap = tonumber(gearDuckDB.hitCaps[gearDuckDB.context]) or 0
-
     for _, slot in ipairs(slots) do
         local equippedLink = GetInventoryItemLink("player", slot)
         local score, breakdown, stats = ScoreItem(equippedLink, classWeights)
@@ -1059,7 +1089,7 @@ local function EvaluateItem(itemLink)
         }
 
         if not replacesBothWeaponSlots then
-            comparisons[#comparisons + 1] = {
+            slotComparisons[#slotComparisons + 1] = {
                 label = EQUIP_SLOT_LABELS[slot] or ("Slot " .. slot),
                 equippedScore = score,
                 delta = itemScore - score,
@@ -1073,7 +1103,7 @@ local function EvaluateItem(itemLink)
         for _, equippedItem in ipairs(equipped) do
             equippedScore = equippedScore + equippedItem.score
         end
-        comparisons[1] = {
+        slotComparisons[1] = {
             label = "Both Hands",
             equippedScore = equippedScore,
             delta = itemScore - equippedScore,
@@ -1081,15 +1111,32 @@ local function EvaluateItem(itemLink)
         }
     end
 
-    for _, comparison in ipairs(comparisons) do
-        local setBonusDelta = GetSetBonusDelta(itemSetID, comparison.replacedItems, setCounts)
-        comparison.delta = comparison.delta
-            + GetHitCapCorrection(itemStats, comparison.replacedItems, equippedHit, classWeights.Hit or 0, hitCap)
-            + setBonusDelta
-        if isEnchantedWeapon then
-            comparison.deltaWithoutEnchant = itemScoreWithoutEnchant - comparison.equippedScore
-                + GetHitCapCorrection(itemStatsWithoutEnchant, comparison.replacedItems, equippedHit, classWeights.Hit or 0, hitCap)
-                + setBonusDelta
+    local comparisons = {}
+    local hitCaps = {}
+    for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+        if gearDuckDB.displayContexts[context.key] then
+            local hitCap = gearDuckDB.hitCaps[context.key] or 0
+            hitCaps[context.key] = hitCap
+            for _, slotComparison in ipairs(slotComparisons) do
+                local comparison = {
+                    profileKey = context.key,
+                    profileName = context.name,
+                    label = slotComparison.label,
+                    equippedScore = slotComparison.equippedScore,
+                    replacedItems = slotComparison.replacedItems,
+                    delta = slotComparison.delta,
+                }
+                local setBonusDelta = GetSetBonusDelta(itemSetID, comparison.replacedItems, setCounts)
+                comparison.delta = comparison.delta
+                    + GetHitCapCorrection(itemStats, comparison.replacedItems, equippedHit, classWeights.Hit or 0, hitCap)
+                    + setBonusDelta
+                if isEnchantedWeapon then
+                    comparison.deltaWithoutEnchant = itemScoreWithoutEnchant - comparison.equippedScore
+                        + GetHitCapCorrection(itemStatsWithoutEnchant, comparison.replacedItems, equippedHit, classWeights.Hit or 0, hitCap)
+                        + setBonusDelta
+                end
+                comparisons[#comparisons + 1] = comparison
+            end
         end
     end
 
@@ -1111,8 +1158,7 @@ local function EvaluateItem(itemLink)
         treeKey = treeKey,
         treeName = treeName,
         treePoints = treePoints,
-        scoringContext = gearDuckDB.context,
-        hitCap = hitCap,
+        hitCaps = hitCaps,
         equipped = equipped,
         comparisons = comparisons,
     }
@@ -1149,8 +1195,12 @@ local function PrintDebug(evaluation)
         Print(string.format("Equipped %s: %s (weighted score %s)", slotLabel, equipped.link or "empty", FormatScore(equipped.score)))
     end
 
-    Print("Activity profile: " .. (SCORING_CONTEXTS[evaluation.scoringContext] or "Unknown"))
-    Print(string.format("Hit cap: %s raw stat units (0 = uncapped)", FormatScore(evaluation.hitCap)))
+    for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+        local hitCap = evaluation.hitCaps[context.key]
+        if hitCap ~= nil then
+            Print(string.format("%s hit cap: %s raw stat units (0 = uncapped)", context.name, FormatScore(hitCap)))
+        end
+    end
     if evaluation.treeName then
         Print(string.format("Active talent profile: %s (%s points; %s)", evaluation.treeName, tostring(evaluation.treePoints or "?"), evaluation.treeKey))
     end
@@ -1162,7 +1212,7 @@ local function PrintDebug(evaluation)
     end
 
     for _, comparison in ipairs(evaluation.comparisons) do
-        Print(string.format("Power Level vs %s: %s - %s = %s", comparison.label, FormatScore(evaluation.itemScore), FormatScore(comparison.equippedScore), FormatScore(comparison.delta)))
+        Print(string.format("%s PL vs %s: %s - %s = %s", comparison.profileName, comparison.label, FormatScore(evaluation.itemScore), FormatScore(comparison.equippedScore), FormatScore(comparison.delta)))
     end
 end
 
@@ -1183,8 +1233,9 @@ local function CreateOptionsPanel()
     local selectedClassFile = gearDuckDB.weights[playerClassFile] and playerClassFile or "ROGUE"
     local activeTreeKey = GetActiveTalentTree()
     local selectedTreeKey = selectedClassFile == playerClassFile and activeTreeKey or nil
-    local selectedContext = gearDuckDB.context
+    local selectedHitCapContext = gearDuckDB.hitCapContext
     local editBoxes = {}
+    local profileCheckboxes = {}
     local hitCapEditBox
     local contextDropdown
     local scrollFrame
@@ -1234,7 +1285,7 @@ local function CreateOptionsPanel()
 
     local function RefreshHitCap()
         if hitCapEditBox then
-            hitCapEditBox:SetText(FormatWeight(tonumber(gearDuckDB.hitCaps[selectedContext]) or 0))
+            hitCapEditBox:SetText(FormatWeight(tonumber(gearDuckDB.hitCaps[selectedHitCapContext]) or 0))
         end
     end
 
@@ -1260,43 +1311,82 @@ local function CreateOptionsPanel()
     end)
     UIDropDownMenu_SetSelectedValue(dropdown, selectedClassFile)
 
-    local contextLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    contextLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -84)
-    contextLabel:SetText("Activity:")
+    local profilesLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    profilesLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -84)
+    profilesLabel:SetText("Show in tooltips:")
 
-    contextDropdown = CreateFrame("Frame", "GearDuckContextDropdown", panel, "UIDropDownMenuTemplate")
-    contextDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", 118, -74)
+    for index, context in ipairs(SCORING_CONTEXT_ORDER) do
+        local contextKey = context.key
+        local contextName = context.name
+        local checkbox = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+        checkbox:SetSize(24, 24)
+        checkbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 142 + (index - 1) * 100, -78)
+        local label = checkbox:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        label:SetPoint("LEFT", checkbox, "RIGHT", 2, 0)
+        label:SetText(contextName)
+        checkbox:SetChecked(gearDuckDB.displayContexts[contextKey])
+        checkbox:SetScript("OnClick", function(self)
+            local checkedCount = 0
+            for _, option in ipairs(SCORING_CONTEXT_ORDER) do
+                if option.key ~= contextKey and gearDuckDB.displayContexts[option.key] then
+                    checkedCount = checkedCount + 1
+                end
+            end
+            if not self:GetChecked() and checkedCount == 0 then
+                self:SetChecked(true)
+                DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Select at least one tooltip profile.")
+                return
+            end
+
+            gearDuckDB.displayContexts[contextKey] = self:GetChecked() == true
+            if lastEvaluation then
+                lastEvaluation = EvaluateItem(lastEvaluation.link)
+            end
+        end)
+        profileCheckboxes[context.key] = checkbox
+    end
+
+    local hitCapProfileLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    hitCapProfileLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -114)
+    hitCapProfileLabel:SetText("Hit cap profile:")
+
+    contextDropdown = CreateFrame("Frame", "GearDuckHitCapProfileDropdown", panel, "UIDropDownMenuTemplate")
+    contextDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", 120, -104)
     UIDropDownMenu_SetWidth(contextDropdown, 170)
     UIDropDownMenu_Initialize(contextDropdown, function(self, level)
-        for contextKey, contextName in pairs(SCORING_CONTEXTS) do
+        for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+            local contextKey = context.key
+            local contextName = context.name
             local info = UIDropDownMenu_CreateInfo()
             info.text = contextName
             info.value = contextKey
-            info.checked = selectedContext == contextKey
+            info.checked = selectedHitCapContext == contextKey
             info.func = function()
-                selectedContext = contextKey
-                gearDuckDB.context = contextKey
-                UIDropDownMenu_SetSelectedValue(contextDropdown, selectedContext)
+                selectedHitCapContext = contextKey
+                gearDuckDB.hitCapContext = contextKey
+                UIDropDownMenu_SetSelectedValue(contextDropdown, selectedHitCapContext)
+                UIDropDownMenu_SetText(contextDropdown, contextName)
                 RefreshHitCap()
             end
             UIDropDownMenu_AddButton(info, level)
         end
     end)
-    UIDropDownMenu_SetSelectedValue(contextDropdown, selectedContext)
+    UIDropDownMenu_SetSelectedValue(contextDropdown, selectedHitCapContext)
+    UIDropDownMenu_SetText(contextDropdown, SCORING_CONTEXTS[selectedHitCapContext])
 
     local hitCapLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    hitCapLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 330, -84)
+    hitCapLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 330, -114)
     hitCapLabel:SetText("Hit cap (raw units):")
 
     hitCapEditBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
     hitCapEditBox:SetSize(70, 22)
-    hitCapEditBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 465, -81)
+    hitCapEditBox:SetPoint("TOPLEFT", panel, "TOPLEFT", 465, -111)
     hitCapEditBox:SetAutoFocus(false)
     hitCapEditBox:SetTextInsets(5, 5, 0, 0)
     hitCapEditBox:SetScript("OnEnterPressed", function(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 100000 then
-            gearDuckDB.hitCaps[selectedContext] = value
+            gearDuckDB.hitCaps[selectedHitCapContext] = value
         end
         RefreshHitCap()
         self:ClearFocus()
@@ -1304,7 +1394,7 @@ local function CreateOptionsPanel()
     hitCapEditBox:SetScript("OnEditFocusLost", function(self)
         local value = tonumber(self:GetText())
         if value and value >= 0 and value <= 100000 then
-            gearDuckDB.hitCaps[selectedContext] = value
+            gearDuckDB.hitCaps[selectedHitCapContext] = value
         end
         RefreshHitCap()
     end)
@@ -1312,7 +1402,7 @@ local function CreateOptionsPanel()
 
     local resetButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     resetButton:SetSize(126, 24)
-    resetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 460, -108)
+    resetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 460, -144)
     resetButton:SetText("Reset this class")
     resetButton:SetScript("OnClick", function()
         local defaults = CLASS_WEIGHTS[selectedClassFile] or CLASSIC_DEFAULT_WEIGHTS
@@ -1328,12 +1418,12 @@ local function CreateOptionsPanel()
     end)
 
     local helpText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    helpText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -110)
+    helpText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -145)
     helpText:SetWidth(410)
     helpText:SetText("The active talent tree is detected automatically. Weapon skill includes supported racials and talents; hit cap excludes talents and buffs.")
 
     scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -144)
+    scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -176)
     scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -34, 18)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
@@ -1387,15 +1477,14 @@ local function CreateOptionsPanel()
     end
 
     local function RefreshOptionsPanel()
-selectedContext = gearDuckDB.context
         local activeKey = GetActiveTalentTree()
         selectedTreeKey = selectedClassFile == playerClassFile and activeKey or nil
-        
-        -- 1. Refresh Activity Context Dropdown
-        UIDropDownMenu_SetSelectedValue(contextDropdown, selectedContext)
-        UIDropDownMenu_SetText(contextDropdown, SCORING_CONTEXTS[selectedContext] or "Unknown")
-
-        -- 2. Refresh Class Dropdown
+        selectedHitCapContext = gearDuckDB.hitCapContext
+        for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+            profileCheckboxes[context.key]:SetChecked(gearDuckDB.displayContexts[context.key])
+        end
+        UIDropDownMenu_SetSelectedValue(contextDropdown, selectedHitCapContext)
+        UIDropDownMenu_SetText(contextDropdown, SCORING_CONTEXTS[selectedHitCapContext] or "Unknown")
         UIDropDownMenu_SetSelectedValue(dropdown, selectedClassFile)
         for _, classInfo in ipairs(CLASS_OPTIONS) do
             if classInfo.file == selectedClassFile then
@@ -1466,10 +1555,10 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
 
         for _, comparison in ipairs(evaluation.comparisons) do
             if evaluation.isEnchantedWeapon then
-                tooltip:AddLine(FormatPowerLevelLine(comparison.label .. " (without enchant)", comparison.deltaWithoutEnchant))
-                tooltip:AddLine(FormatPowerLevelLine(comparison.label .. " (with enchant)", comparison.delta))
+                tooltip:AddLine(FormatPowerLevelLine(comparison.profileName, comparison.label .. " (without enchant)", comparison.deltaWithoutEnchant))
+                tooltip:AddLine(FormatPowerLevelLine(comparison.profileName, comparison.label .. " (with enchant)", comparison.delta))
             else
-                tooltip:AddLine(FormatPowerLevelLine(comparison.label, comparison.delta))
+                tooltip:AddLine(FormatPowerLevelLine(comparison.profileName, comparison.label, comparison.delta))
             end
         end
         tooltip:Show()
@@ -1483,8 +1572,8 @@ local function PrintHelp()
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd help|r - Show this command list.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd debug|r - Print the hovered item's stats and Power Level math.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd options|r - Open GearDuck's AddOns settings panel.")
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd profile <raid|quest|pvp>|r - Select the activity profile.")
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd hitcap <value>|r - Set this profile's hit cap in raw item-stat units; 0 disables it.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd profile <raid|quest|pvp>|r - Show only the selected profile.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd hitcap <value>|r - Set the selected hit-cap profile in raw item-stat units; 0 disables it.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd itembonus <value|clear>|r - Set/clear the hovered item's manual effect score.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd enchantbonus <value|clear>|r - Set/clear a proc-only bonus for the hovered enchant.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd setbonus <pieces> <value|clear>|r - Set/clear a hovered set's threshold score.")
@@ -1567,8 +1656,13 @@ SlashCmdList.GEARDUCK = function(message)
     if profileName then
         local profileKey = string.upper(profileName)
         if SCORING_CONTEXTS[profileKey] then
-            gearDuckDB.context = profileKey
-            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Activity profile: " .. SCORING_CONTEXTS[profileKey])
+            for _, context in ipairs(SCORING_CONTEXT_ORDER) do
+                gearDuckDB.displayContexts[context.key] = context.key == profileKey
+            end
+            if optionsPanel and optionsPanel.RefreshGearDuckOptions then
+                optionsPanel:RefreshGearDuckOptions()
+            end
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Showing only the " .. SCORING_CONTEXTS[profileKey] .. " profile.")
             RefreshLastEvaluation()
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Choose raid, quest, or pvp.")
@@ -1580,8 +1674,9 @@ SlashCmdList.GEARDUCK = function(message)
     if hitCapValue then
         local value = tonumber(hitCapValue)
         if value and value >= 0 and value <= 100000 then
-            gearDuckDB.hitCaps[gearDuckDB.context] = value
-            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff33ccffGearDuck:|r %s hit cap set to %s raw item-stat units.", SCORING_CONTEXTS[gearDuckDB.context], value))
+            local contextKey = gearDuckDB.hitCapContext
+            gearDuckDB.hitCaps[contextKey] = value
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff33ccffGearDuck:|r %s hit cap set to %s raw item-stat units.", SCORING_CONTEXTS[contextKey], value))
             RefreshLastEvaluation()
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Hit cap must be between 0 and 100000.")
@@ -1681,12 +1776,15 @@ loaderFrame:SetScript("OnEvent", function(self, event, addonName)
             gearDuckDB.itemBonuses = gearDuckDB.itemBonuses or {}
             gearDuckDB.enchantBonuses = gearDuckDB.enchantBonuses or {}
             gearDuckDB.setBonuses = gearDuckDB.setBonuses or {}
-            gearDuckDB.hitCaps = gearDuckDB.hitCaps or { RAID = 0, QUEST = 0, PVP = 0 }
+            EnsureContextSettings(gearDuckDB)
             
             for classFile, defaults in pairs(CLASS_WEIGHTS) do
                 gearDuckDB.weights[classFile] = EnsureWeightProfile(gearDuckDB.weights[classFile], defaults)
             end
             gearDuckDB.weights.DEFAULT = EnsureWeightProfile(gearDuckDB.weights.DEFAULT, CLASSIC_DEFAULT_WEIGHTS)
+            if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
+                optionsPanel:RefreshGearDuckOptions()
+            end
         end
         self:UnregisterEvent("ADDON_LOADED")
     end
