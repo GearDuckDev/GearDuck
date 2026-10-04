@@ -5,5 +5,5 @@ ignore:
 package-as: GearDuck
 
 move-folders:
-  GearDuck: GearDuck
-  GearDuckWeights: GearDuckWeights
+  GearDuck/GearDuck: GearDuck
+  GearDuck/GearDuckWeights: GearDuckWeights
