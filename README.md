@@ -32,6 +32,18 @@ The installed path should look like this:
 Interface/
 └── AddOns/
     ├── GearDuck/
+    │   ├── GearDuckData.lua
+    │   ├── GearDuckItems.lua
+    │   ├── GearDuckSets.lua
+    │   ├── GearDuckProfiles.lua
+    │   ├── GearDuckTalents.lua
+    │   ├── GearDuckEquipment.lua
+    │   ├── GearDuckScoring.lua
+    │   ├── GearDuckEvaluation.lua
+    │   ├── GearDuckPresentation.lua
+    │   ├── GearDuckOptions.lua
+    │   ├── GearDuckUpgradeIndicators.lua
+    │   ├── GearDuckHit.lua
     │   ├── GearDuck.lua
     │   └── GearDuck.toc
     └── GearDuckWeights/
@@ -64,6 +76,16 @@ Use `/gd options` or open **Options → AddOns → GearDuck**. Select a class an
 Available weights include Strength, Agility, Stamina, Intellect, Spirit, Hit, Crit, Attack Power, Ranged Attack Power, Spell Power / Damage, Healing, Mana Regeneration, Defense, Dodge, Parry, Armor, Weapon DPS, Weapon Speed Preference, Weapon Skill, Weapon-Specific Crit %, and Weapon-Specific Extra Attack %. Each class/activity/talent profile can be edited independently. Positive weapon-speed weights favor slower weapons; negative values favor faster weapons. Weapon-skill, crit, and extra-attack weights are heuristic Power Level units, not exact DPS simulations.
 
 In the AddOns options, select one or more tooltip profiles; comparisons are displayed Questing, Raid, then PvP. Hit caps are stored independently for every class/activity combination as percentages. Defaults are 5% physical / 3% spell for Questing and PvP, and 9% physical / 16% spell for Raid. Item Hit is read from the tooltip's green percentage line. Recognized talent hit bonuses are subtracted from the applicable cap; dual-wielding Warriors, Rogues, and Shamans use a 27% physical hit cap for raid white-hit scoring, with Shaman dual wield enabled only when its talent is active. Physical-only, spell-only, and hybrid classes use the relevant cap or the higher applicable cap. Buffs, PvP defensive stats, and talent names/values not in GearDuck's recognized Classic mapping are not included.
+
+## Tests
+
+The standalone Lua regression harness checks SavedVariables migration, weighted item scoring, set-bonus threshold changes, item eligibility, and evaluation-cache invalidation with lightweight WoW API stubs. From the repository root, run it with Lua 5.1:
+
+```text
+lua tests\run.lua
+```
+
+These tests cover core calculations without launching the game. Use the WoW client to validate live tooltip rendering, options-panel behavior, bag hooks, and Baganator integration.
 
 ### Manual Effects
 

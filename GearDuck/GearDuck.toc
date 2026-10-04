@@ -2,8 +2,20 @@
 ## Title: GearDuck
 ## Notes: Weighted item score comparison on item tooltips.
 ## Author: GearDuckDev
-## Version: 0.4.0-beta
+## Version: 0.5.0-beta
 ## SavedVariables: GearDuckDB
 ## Dependencies: GearDuckWeights
 
+GearDuckData.lua
+GearDuckItems.lua
+GearDuckSets.lua
+GearDuckProfiles.lua
+GearDuckTalents.lua
+GearDuckEquipment.lua
+GearDuckHit.lua
+GearDuckScoring.lua
+GearDuckEvaluation.lua
+GearDuckPresentation.lua
+GearDuckOptions.lua
+GearDuckUpgradeIndicators.lua
 GearDuck.lua
