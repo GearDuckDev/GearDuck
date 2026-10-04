@@ -24,7 +24,8 @@
         "UIDropDownMenu_SetText",
         "UIDropDownMenu_AddButton",
         "UIDropDownMenu_CreateInfo",
-        "UIParent"
+        "UIParent",
+        "QuestInfoFrame"
     ],
     "Lua.type.weakUnionCheck": true
 }

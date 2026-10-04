@@ -13,7 +13,7 @@ GearDuck is a lightweight World of Warcraft: Forever addon that estimates item u
 - Checks weapon and armor eligibility using explicit rules for all nine Classic classes; unusable items show `Cannot Use` instead of upgrade comparisons. Includes level-20 polearm training, level-40 mail/plate unlocks, Shaman's two-handed weapon talent, and item required-level checks.
 - Labels comparisons as upgrades, sidegrades, or downgrades.
 - Includes weapon DPS and weapon speed in scoring when the item tooltip exposes damage and speed values.
-- Shows a small green up arrow on item icons when an item is equippable and is an upgrade in at least one selected profile. The character equipment pane is excluded.
+- Shows a small up arrow on visible item icons when an item is equippable and is an upgrade in at least one selected profile. The character equipment pane is excluded. Baganator category-view bags use its corner-widget API, while Blizzard individual and combined bags use the default UI's item-button enumerators and bounded refreshes after opening/updating. Other supported item panels refresh on mail, quest, trade, and merchant updates. Item evaluations are cached and recalculated when equipment, level, talents, or weights change.
 - Shows separate Power Level comparisons for an enchanted weapon with and without its enchant.
 - Shows Questing comparisons by default, with options to show any combination of Questing, Raid, and PvP comparisons in that order. Each context has a configurable hit cap.
 - Supports manual Power Level values for proc/use effects and set-bonus thresholds.
