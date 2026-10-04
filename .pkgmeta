@@ -1,0 +1,6 @@
+package-as: GearDuck
+move-folders:
+  GearDuck: GearDuck
+ignore:
+  - README.md
+  - .vscode
