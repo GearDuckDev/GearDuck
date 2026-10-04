@@ -180,6 +180,7 @@ local EQUIP_SLOT_LABELS = {
 
 local lastEvaluation
 local lastTooltip
+local upgradeIndicators = setmetatable({}, { __mode = "k" })
 local optionsPanel
 local optionsCategory
 local activeTalentTreeCache
@@ -1922,6 +1923,100 @@ local function GetTooltipItemLink(tooltip, data)
     return itemLink
 end
 
+local function IsCharacterPaneFrame(frame)
+    while frame do
+        local name = frame.GetName and frame:GetName()
+        if name then
+            name = string.lower(name)
+            if string.find(name, "character", 1, true) or string.find(name, "paperdoll", 1, true) then
+                return true
+            end
+        end
+        frame = frame.GetParent and frame:GetParent()
+    end
+    return false
+end
+
+local function GetItemIconRegion(owner)
+    if not owner then
+        return nil
+    end
+
+    local iconFields = { "Icon", "icon", "IconTexture", "iconTexture", "ItemIcon", "itemIcon", "texture", "Texture" }
+    for _, field in ipairs(iconFields) do
+        local region = owner[field]
+        if region and region.GetObjectType and region:GetObjectType() == "Texture" then
+            return region
+        end
+    end
+
+    local name = owner.GetName and owner:GetName()
+    if name then
+        for _, suffix in ipairs({ "IconTexture", "Icon", "icon", "Texture" }) do
+            local region = _G[name .. suffix]
+            if region and region.GetObjectType and region:GetObjectType() == "Texture" then
+                return region
+            end
+        end
+    end
+
+    if owner.CreateTexture and owner.GetWidth and owner.GetHeight then
+        local width, height = owner:GetWidth(), owner:GetHeight()
+        if width >= 12 and height >= 12 and width <= 256 and height <= 256
+            and width / height >= 0.5 and width / height <= 2 then
+            return owner
+        end
+    end
+    return nil
+end
+
+local function UpdateUpgradeIndicator(tooltip, evaluation)
+    local owner = tooltip and tooltip.GetOwner and tooltip:GetOwner()
+    if not owner or owner == UIParent then
+        return
+    end
+
+    local indicator = upgradeIndicators[owner]
+    if IsCharacterPaneFrame(owner) then
+        if indicator then
+            indicator:Hide()
+        end
+        return
+    end
+
+    local isUpgrade = evaluation and evaluation.canEquip == true
+    if isUpgrade then
+        isUpgrade = false
+        for _, comparison in ipairs(evaluation.comparisons) do
+            if comparison.delta > 0.05 then
+                isUpgrade = true
+                break
+            end
+        end
+    end
+
+    if not isUpgrade then
+        if indicator then
+            indicator:Hide()
+        end
+        return
+    end
+
+    local iconRegion = GetItemIconRegion(owner)
+    if not iconRegion or not owner.CreateTexture then
+        return
+    end
+
+    if not indicator then
+        indicator = owner:CreateTexture(nil, "OVERLAY")
+        indicator:SetTexture("Interface\\AddOns\\GearDuck\\Textures\\arrow.tga")
+        indicator:SetSize(14, 14)
+        indicator:SetPoint("TOPRIGHT", iconRegion, "TOPRIGHT", -1, -1)
+        upgradeIndicators[owner] = indicator
+    end
+    indicator:Show()
+end
+
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
     if tooltip == hitTooltipScanner then
         return
@@ -1929,6 +2024,7 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
 
     local itemLink = GetTooltipItemLink(tooltip, data)
     local evaluation = EvaluateItem(itemLink)
+    UpdateUpgradeIndicator(tooltip, evaluation)
 
     if evaluation then
         lastEvaluation = evaluation
