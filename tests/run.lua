@@ -154,6 +154,15 @@ equal(evaluateItem("item:1").comparisons[1].delta, 5, "evaluation cache stabilit
 clearCache()
 equal(evaluateItem("item:1").comparisons[1].delta, 10, "evaluation cache invalidation")
 
+-- Tools and stat-less items are ignored
+itemData[3] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 0, stats = {} }
+itemData[4] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 20, stats = { ITEM_MOD_STRENGTH_SHORT = 5 } }
+itemData[5] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 14, stats = {} }
+equal(evaluateItem("item:3"), nil, "stat-less item has no evaluation")
+equal(evaluateItem("item:4"), nil, "fishing pole has no evaluation")
+equal(evaluateItem("item:5"), nil, "mining pick has no evaluation")
+equal(evaluateItem("item:2") ~= nil, true, "item with stats still evaluated")
+
 -- Per-character databases and onboarding
 local rootDatabase = addon.profiles.NormalizeDatabase({ itemBonuses = { [7] = 3 } })
 local rootWeights = {}

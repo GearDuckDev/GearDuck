@@ -56,8 +56,19 @@ function evaluation.Create(database, weightDatabase)
         end
     
         local className, classFile = UnitClass("player")
+        local itemClassID, itemSubClassID = equipment.GetItemClassInfo(itemLink)
+        if itemClassID == 2 and (itemSubClassID == 14 or itemSubClassID == 20) then
+            -- Profession tools (mining picks, skinning knives) and fishing poles are not gear.
+            return nil
+        end
+        local metadataItemID = items.GetItemMetadata(itemLink)
+        if next(items.GetItemStats(itemLink)) == nil
+            and not items.GetWeaponData(itemLink)
+            and not (metadataItemID and gearDuckDB.itemBonuses[metadataItemID]) then
+            -- Decorative items such as tabards have nothing to compare.
+            return nil
+        end
         local canEquip, equipRestrictionReason = equipment.CanPlayerEquipItem(itemLink)
-        local itemClassID = equipment.GetItemClassInfo(itemLink)
         local unenchantedLink, enchantID = items.GetUnenchantedItemLink(itemLink)
         local isEnchantedWeapon = itemClassID == 2 and enchantID ~= nil
         local itemID, itemSetID = items.GetItemMetadata(itemLink)
