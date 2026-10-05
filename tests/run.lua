@@ -98,6 +98,7 @@ local moduleFiles = {
     "GearDuckPresentation.lua",
     "GearDuckOptions.lua",
     "GearDuckUpgradeIndicators.lua",
+    "GearDuckOnboarding.lua",
 }
 
 for _, fileName in ipairs(moduleFiles) do
@@ -152,5 +153,47 @@ itemData[1].stats.ITEM_MOD_STRENGTH_SHORT = 15
 equal(evaluateItem("item:1").comparisons[1].delta, 5, "evaluation cache stability")
 clearCache()
 equal(evaluateItem("item:1").comparisons[1].delta, 10, "evaluation cache invalidation")
+
+-- Per-character databases and onboarding
+local rootDatabase = addon.profiles.NormalizeDatabase({ itemBonuses = { [7] = 3 } })
+local rootWeights = {}
+local dbA, weightsA = addon.profiles.GetCharacterDatabases(rootDatabase, rootWeights, "A-Realm")
+local dbB, weightsB = addon.profiles.GetCharacterDatabases(rootDatabase, rootWeights, "B-Realm")
+equal(dbA.itemBonuses, rootDatabase.itemBonuses, "shared item bonuses")
+equal(rawget(dbA, "itemBonuses"), nil, "item bonuses not duplicated per character")
+equal(addon.onboarding.IsComplete(dbA), false, "new character needs onboarding")
+
+local defaultStrength = weightsA.profiles.WARRIOR.QUEST.weights.Strength
+addon.onboarding.SetWeightMode(dbA, weightsA, "custom")
+weightsA.profiles.WARRIOR.QUEST.weights.Strength = defaultStrength + 5
+equal(weightsB.profiles.WARRIOR.QUEST.weights.Strength, defaultStrength, "weights are per character")
+equal(dbA.onboarding.weightMode, "custom", "custom weights noted")
+
+addon.onboarding.SetWeightMode(dbA, weightsA, "default")
+equal(weightsA.profiles.WARRIOR.QUEST.weights.Strength, defaultStrength, "defaults restored after switching back")
+equal(dbA.onboarding.weightMode, "default", "custom marker replaced by default")
+
+addon.onboarding.SetContextSelected(dbA, "RAID", true)
+addon.onboarding.SetContextSelected(dbA, "PVP", true)
+addon.onboarding.SetContextSelected(dbA, "PVP", false)
+equal(dbA.displayContexts.RAID, true, "selected profile applied")
+equal(dbA.displayContexts.QUEST, false, "unselected profile hidden")
+equal(dbB.displayContexts.QUEST, true, "other character profiles unchanged")
+
+addon.onboarding.SetUpgradeArrows(dbA, false)
+equal(dbA.showUpgradeArrows, false, "arrow choice applied")
+equal(dbB.showUpgradeArrows, true, "other character arrows unchanged")
+
+equal(addon.onboarding.Finish(dbA, weightsA), false, "finish without custom weights")
+equal(addon.onboarding.IsComplete(dbA), true, "onboarding completed")
+equal(dbA.showUpgradeArrows, false, "answered arrow choice kept on finish")
+
+equal(addon.onboarding.Finish(dbB, weightsB), false, "skip uses default weights")
+equal(dbB.displayContexts.QUEST, true, "skip uses default profile")
+equal(dbB.showUpgradeArrows, true, "skip uses default arrows")
+
+local dbC, weightsC = addon.profiles.GetCharacterDatabases(rootDatabase, rootWeights, "C-Realm")
+addon.onboarding.SetWeightMode(dbC, weightsC, "custom")
+equal(addon.onboarding.Finish(dbC, weightsC), true, "custom weights request options pane")
 
 print(string.format("GearDuck Lua tests passed (%d assertions).", passed))

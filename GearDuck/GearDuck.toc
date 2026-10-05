@@ -18,4 +18,5 @@ GearDuckEvaluation.lua
 GearDuckPresentation.lua
 GearDuckOptions.lua
 GearDuckUpgradeIndicators.lua
+GearDuckOnboarding.lua
 GearDuck.lua

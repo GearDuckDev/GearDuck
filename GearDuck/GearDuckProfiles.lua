@@ -66,7 +66,9 @@ local function EnsureUpgradeArrowSetting(database)
     end
 end
 
-function profiles.NormalizeDatabase(database)
+local SHARED_DATABASE_KEYS = { itemBonuses = true, enchantBonuses = true, setBonuses = true }
+
+function profiles.NormalizeDatabase(database, isCharacterDatabase)
     if type(database) ~= "table" then
         database = {}
     end
@@ -76,24 +78,108 @@ function profiles.NormalizeDatabase(database)
     if type(database.talentWeights) ~= "table" then
         database.talentWeights = {}
     end
-    if type(database.itemBonuses) ~= "table" then
-        database.itemBonuses = {}
-    end
-    if type(database.enchantBonuses) ~= "table" then
-        database.enchantBonuses = {}
-    end
-    if type(database.setBonuses) ~= "table" then
-        database.setBonuses = {}
+    if not isCharacterDatabase then
+        for key in pairs(SHARED_DATABASE_KEYS) do
+            if type(database[key]) ~= "table" then
+                database[key] = {}
+            end
+        end
     end
 
     EnsureUpgradeArrowSetting(database)
     EnsureContextSettings(database)
-    rawset(_G, "GearDuckDB", database)
+    if not isCharacterDatabase then
+        if type(database.characters) ~= "table" then
+            database.characters = {}
+        end
+        rawset(_G, "GearDuckDB", database)
+    end
     return database
 end
 
-function profiles.EnsureActivityWeightProfiles(legacyDatabase)
-    local weightDatabase = rawget(_G, "GearDuckWeightsDB")
+function profiles.GetCharacterKey()
+    local name = UnitName and UnitName("player")
+    local realm = GetRealmName and GetRealmName()
+    return string.format("%s-%s", tostring(name or "Unknown"), tostring(realm or "Unknown"))
+end
+
+-- Settings and weights are per character; item/enchant/set bonuses stay shared through the root database.
+function profiles.GetCharacterDatabases(rootDatabase, rootWeightDatabase, characterKey)
+    if type(rootWeightDatabase) ~= "table" then
+        rootWeightDatabase = {}
+    end
+    if type(rootWeightDatabase.characters) ~= "table" then
+        rootWeightDatabase.characters = {}
+    end
+    if type(rootDatabase.characters) ~= "table" then
+        rootDatabase.characters = {}
+    end
+
+    local database = rootDatabase.characters[characterKey]
+    if type(database) ~= "table" then
+        database = {}
+        rootDatabase.characters[characterKey] = database
+    end
+    for key in pairs(SHARED_DATABASE_KEYS) do
+        database[key] = nil
+    end
+    profiles.NormalizeDatabase(database, true)
+    setmetatable(database, {
+        __index = function(_, key)
+            if SHARED_DATABASE_KEYS[key] then
+                return rootDatabase[key]
+            end
+        end,
+    })
+
+    local state = database.onboarding
+    if type(state) ~= "table" then
+        state = {}
+        database.onboarding = state
+    end
+    state.completed = state.completed == true
+    if type(state.contexts) ~= "table" then
+        state.contexts = {}
+    end
+    if state.weightMode ~= "default" and state.weightMode ~= "custom" then
+        state.weightMode = nil
+    end
+    if type(state.arrows) ~= "boolean" then
+        state.arrows = nil
+    end
+    if type(state.page) ~= "number" then
+        state.page = nil
+    end
+
+    local weightDatabase = rootWeightDatabase.characters[characterKey]
+    if type(weightDatabase) ~= "table" then
+        weightDatabase = {}
+        rootWeightDatabase.characters[characterKey] = weightDatabase
+    end
+    profiles.EnsureActivityWeightProfiles(database, weightDatabase)
+    return database, weightDatabase, rootWeightDatabase
+end
+
+function profiles.ResetWeightsToDefaults(weightDatabase)
+    weightDatabase.profiles = {}
+    for classFile, contextDefaults in pairs(data.CLASS_ACTIVITY_DEFAULTS) do
+        weightDatabase.profiles[classFile] = {}
+        for _, context in ipairs(data.SCORING_CONTEXT_ORDER) do
+            local defaults = contextDefaults[context.key]
+            weightDatabase.profiles[classFile][context.key] = {
+                weights = profiles.EnsureWeightProfile(CopyWeights(defaults.weights), defaults.weights),
+                hitCaps = {
+                    physical = defaults.hitCaps.physical,
+                    spell = defaults.hitCaps.spell,
+                },
+                talentWeights = {},
+            }
+        end
+    end
+end
+
+function profiles.EnsureActivityWeightProfiles(legacyDatabase, characterWeightDatabase)
+    local weightDatabase = characterWeightDatabase or rawget(_G, "GearDuckWeightsDB")
     if type(weightDatabase) ~= "table" then
         weightDatabase = {}
     end
@@ -161,7 +247,9 @@ function profiles.EnsureActivityWeightProfiles(legacyDatabase)
         end
     end
 
-    rawset(_G, "GearDuckWeightsDB", weightDatabase)
+    if not characterWeightDatabase then
+        rawset(_G, "GearDuckWeightsDB", weightDatabase)
+    end
     return weightDatabase
 end
 
