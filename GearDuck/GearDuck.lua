@@ -345,26 +345,51 @@ SlashCmdList.GEARDUCK = function(message)
     PrintHelp()
 end
 
+local function ApplyCharacterDatabases()
+    gearDuckDB, gearDuckWeightsDB = ResolveCharacterDatabases()
+    SetEvaluationDatabases(gearDuckDB, gearDuckWeightsDB)
+    optionsPanel.SetGearDuckDatabases(gearDuckDB, gearDuckWeightsDB)
+    upgradeUI.SetDatabase(gearDuckDB)
+    if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
+        optionsPanel:RefreshGearDuckOptions()
+    end
+end
+
+local function ShowOnboardingIfNeeded()
+    if addon.onboarding.IsComplete(gearDuckDB) or onboardingUI.IsShown() then
+        return
+    end
+    local ok, err = pcall(onboardingUI.Show)
+    if not ok then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Could not open setup: " .. tostring(err))
+    end
+end
+
 local loaderFrame = CreateFrame("Frame")
 loaderFrame:RegisterEvent("ADDON_LOADED")
 loaderFrame:RegisterEvent("PLAYER_LOGIN")
+loaderFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 loaderFrame:SetScript("OnEvent", function(self, event, addonName)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
-        if not addon.onboarding.IsComplete(gearDuckDB) then
-            onboardingUI.Show()
+        -- The player name can be unavailable at ADDON_LOADED, which would key every character the same.
+        ApplyCharacterDatabases()
+        return
+    end
+
+    if event == "PLAYER_ENTERING_WORLD" then
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        -- Wait a moment so the UI has finished loading before showing the window.
+        if C_Timer and C_Timer.After then
+            C_Timer.After(1, ShowOnboardingIfNeeded)
+        else
+            ShowOnboardingIfNeeded()
         end
         return
     end
 
     if addonName == "GearDuck" then
-        gearDuckDB, gearDuckWeightsDB = ResolveCharacterDatabases()
-        SetEvaluationDatabases(gearDuckDB, gearDuckWeightsDB)
-        optionsPanel.SetGearDuckDatabases(gearDuckDB, gearDuckWeightsDB)
-        upgradeUI.SetDatabase(gearDuckDB)
-        if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
-            optionsPanel:RefreshGearDuckOptions()
-        end
+        ApplyCharacterDatabases()
         self:UnregisterEvent("ADDON_LOADED")
     end
 end)
