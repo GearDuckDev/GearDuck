@@ -124,6 +124,70 @@ local weightDatabase = addon.profiles.EnsureActivityWeightProfiles(database)
 equal(weightDatabase.profiles.WARRIOR.QUEST.weights.Strength, 3, "legacy weight migration")
 equal(weightDatabase.profiles.WARRIOR.QUEST.hitCaps.physical, 12, "legacy hit-cap migration")
 equal(weightDatabase.profiles.WARRIOR.QUEST.hitCaps.spell, 12, "legacy hit-cap migration")
+equal(addon.data.CLASS_ACTIVITY_DEFAULTS.WARRIOR.RAID.weights.Hit, 1.3 * 1.1, "raid class weights adjust hit")
+equal(addon.data.CLASS_ACTIVITY_DEFAULTS.WARRIOR.PVP.weights.Stamina, 0.7 * 1.35, "pvp class weights adjust stamina")
+for classFile, treeNames in pairs(addon.data.CLASS_TALENT_TREE_NAMES) do
+    for treeKey in pairs(treeNames) do
+        for _, context in ipairs(addon.data.SCORING_CONTEXT_ORDER) do
+            equal(
+                type(addon.data.CLASS_TALENT_DEFAULTS[classFile][context.key][treeKey]),
+                "table",
+                classFile .. " " .. treeKey .. " " .. context.key .. " starter weights"
+            )
+        end
+    end
+end
+
+local armsWeights = addon.profiles.GetTalentWeightProfile(weightDatabase, "WARRIOR", "QUEST", "TREE_1")
+local protectionWeights = addon.profiles.GetTalentWeightProfile(weightDatabase, "WARRIOR", "QUEST", "TREE_3")
+equal(armsWeights.Strength, 2.2, "arms tree starter weights")
+equal(protectionWeights.Defense, 1.2, "protection tree starter weights")
+local raidArmsWeights = addon.profiles.GetTalentWeightProfile(weightDatabase, "WARRIOR", "RAID", "TREE_1")
+equal(raidArmsWeights.Hit, 1.4 * 1.1, "tree starter weights vary by activity")
+armsWeights.Strength = 7
+addon.profiles.EnsureActivityWeightProfiles(database, weightDatabase)
+equal(
+    addon.profiles.GetTalentWeightProfile(weightDatabase, "WARRIOR", "QUEST", "TREE_1").Strength,
+    7,
+    "saved tree weights survive profile normalization"
+)
+
+local oldTreeProfile = {}
+local oldClassProfile = {}
+for statName, weight in pairs(addon.data.CLASS_WEIGHTS.WARRIOR) do
+    oldTreeProfile[statName] = weight
+    oldClassProfile[statName] = weight
+end
+oldTreeProfile.Strength = 9
+oldClassProfile.Strength = 8
+local oldWeightDatabase = {
+    profiles = {
+        WARRIOR = {
+            QUEST = {
+                weights = {},
+                talentWeights = { TREE_1 = oldTreeProfile },
+            },
+            RAID = {
+                weights = oldClassProfile,
+                talentWeights = {},
+            },
+        },
+    },
+}
+addon.profiles.EnsureActivityWeightProfiles(
+    { weights = {}, talentWeights = {}, hitCaps = {} },
+    oldWeightDatabase
+)
+equal(oldClassProfile.Hit, 1.3 * 1.1, "old activity defaults updated")
+equal(oldClassProfile.Strength, 8, "custom class weight preserved during migration")
+equal(oldTreeProfile.Hit, 1.4, "old tree defaults updated")
+equal(oldTreeProfile.Strength, 9, "custom tree weight preserved during migration")
+oldTreeProfile.Hit = 1.3
+addon.profiles.EnsureActivityWeightProfiles(
+    { weights = {}, talentWeights = {}, hitCaps = {} },
+    oldWeightDatabase
+)
+equal(oldTreeProfile.Hit, 1.3, "migrated custom weights are preserved on later loads")
 
 database.itemBonuses[1] = 2
 local score = addon.scoring.ScoreItem(database, "item:1", { Strength = 1 })

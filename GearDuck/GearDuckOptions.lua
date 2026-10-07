@@ -10,6 +10,8 @@ local STAT_ORDER = data.STAT_ORDER
 local STAT_LABELS = data.STAT_LABELS
 local CLASS_OPTIONS = data.CLASS_OPTIONS
 local CLASS_ACTIVITY_DEFAULTS = data.CLASS_ACTIVITY_DEFAULTS
+local CLASS_TALENT_DEFAULTS = data.CLASS_TALENT_DEFAULTS
+local CLASS_TALENT_TREE_NAMES = data.CLASS_TALENT_TREE_NAMES
 local SCORING_CONTEXTS = data.SCORING_CONTEXTS
 local SCORING_CONTEXT_ORDER = data.SCORING_CONTEXT_ORDER
 
@@ -50,6 +52,29 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
             selectedActivityKey = "QUEST"
             gearDuckDB.hitCapContext = selectedActivityKey
         end
+
+        local function GetSelectedDefaultWeights()
+            local classDefaults = CLASS_TALENT_DEFAULTS[selectedClassFile]
+            local contextDefaults = classDefaults and classDefaults[selectedActivityKey]
+            return (contextDefaults and selectedTreeKey and contextDefaults[selectedTreeKey])
+                or CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey].weights
+        end
+
+        local treeHelpText
+        local function RefreshTreeHelpText()
+            if not treeHelpText then
+                return
+            end
+            local treeNames = CLASS_TALENT_TREE_NAMES[selectedClassFile]
+            local treeName = treeNames and selectedTreeKey and treeNames[selectedTreeKey]
+            if treeName then
+                treeHelpText:SetText("Active tree: " .. treeName
+                    .. ". Starter weights are estimates; hit caps subtract recognized talent bonuses, not buffs.")
+            else
+                treeHelpText:SetText("No tree preset selected; using class defaults. Hit caps subtract recognized talent bonuses, not buffs.")
+            end
+        end
+
         local editBoxes = {}
         local profileCheckboxes = {}
         local physicalHitCapEditBox
@@ -112,13 +137,14 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
 
         local function RefreshEditBoxes()
             local defaults = CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey]
+            local defaultWeights = GetSelectedDefaultWeights()
             for _, editBox in ipairs(editBoxes) do
                 editBox.profileClass = selectedClassFile
                 editBox.profileContext = selectedActivityKey
                 editBox.profileTree = selectedTreeKey
                 local defaultValue = editBox.hitType
                     and defaults.hitCaps[editBox.hitType]
-                    or defaults.weights[editBox.statName]
+                    or defaultWeights[editBox.statName]
                 editBox:SetText(FormatWeight(GetEditBoxValue(editBox) or defaultValue))
                 editBox:SetCursorPosition(0)
             end
@@ -146,6 +172,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
                     selectedTreeKey = classInfo.file == playerClassFile and activeKey or nil
                     UIDropDownMenu_SetSelectedValue(dropdown, selectedClassFile)
                     RefreshEditBoxes()
+                    RefreshTreeHelpText()
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
@@ -207,6 +234,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
                     UIDropDownMenu_SetSelectedValue(activityDropdown, selectedActivityKey)
                     UIDropDownMenu_SetText(activityDropdown, contextName)
                     RefreshEditBoxes()
+                    RefreshTreeHelpText()
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
@@ -265,6 +293,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
         resetButton:SetText("Restore defaults")
         resetButton:SetScript("OnClick", function()
             local defaults = CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey]
+            local defaultWeights = GetSelectedDefaultWeights()
             local profile = profiles.GetTalentWeightProfile(
                 gearDuckWeightsDB,
                 selectedClassFile,
@@ -272,7 +301,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
                 selectedTreeKey
             )
             for _, statName in ipairs(STAT_ORDER) do
-                profile[statName] = defaults.weights[statName] or 0
+                profile[statName] = defaultWeights[statName] or 0
             end
             local activityProfile = profiles.GetActivityWeightProfile(
                 gearDuckWeightsDB,
@@ -290,7 +319,8 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
         local helpText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         helpText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -175)
         helpText:SetWidth(410)
-        helpText:SetText("Active talent weights are detected automatically. Hit caps subtract recognized talent bonuses; buffs are not included.")
+        treeHelpText = helpText
+        RefreshTreeHelpText()
 
         scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
         scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -206)
@@ -365,6 +395,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
             end
 
             RefreshEditBoxes()
+            RefreshTreeHelpText()
         end
         panel.RefreshGearDuckOptions = RefreshOptionsPanel
 
