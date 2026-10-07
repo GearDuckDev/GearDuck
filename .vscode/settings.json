@@ -26,7 +26,8 @@
         "UIDropDownMenu_CreateInfo",
         "UIParent",
         "QuestInfoFrame",
-        "loadfile"
+        "loadfile",
+        "UISpecialFrames"
     ],
     "Lua.type.weakUnionCheck": true
 }
