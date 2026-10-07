@@ -499,6 +499,7 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
     local integration = {
         GetTooltipItemLink = GetTooltipItemLink,
         UpdateUpgradeIndicator = UpdateUpgradeIndicator,
+        IsCharacterPaneFrame = IsCharacterPaneFrame,
         ScheduleRefresh = ScheduleUpgradeIndicatorRefresh,
         SetDatabase = function(newDatabase)
             gearDuckDB = newDatabase

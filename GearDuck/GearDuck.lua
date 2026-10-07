@@ -91,14 +91,30 @@ end)
 
 upgradeUI = addon.upgradeIndicators.Initialize(gearDuckDB, EvaluateItem, InvalidateEvaluationCache)
 
+local function IsComparisonTooltip(tooltip)
+    if not tooltip then
+        return false
+    end
+    local name = tooltip.GetName and tooltip:GetName()
+    if name and string.find(name, "ShoppingTooltip", 1, true) then
+        return true
+    end
+    return tooltip.IsEmbedded == true or tooltip.isShoppingTooltip == true
+end
+
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
-    if hit.IsScannerTooltip(tooltip) then
+    if hit.IsScannerTooltip(tooltip) or IsComparisonTooltip(tooltip) then
+        return
+    end
+
+    local owner = tooltip and tooltip.GetOwner and tooltip:GetOwner()
+    if upgradeUI.IsCharacterPaneFrame(owner) then
+        upgradeUI.UpdateUpgradeIndicator(owner, nil)
         return
     end
 
     local itemLink = upgradeUI.GetTooltipItemLink(tooltip, data)
     local evaluation = EvaluateItem(itemLink)
-    local owner = tooltip and tooltip.GetOwner and tooltip:GetOwner()
     upgradeUI.UpdateUpgradeIndicator(owner, evaluation)
 
     if evaluation then
