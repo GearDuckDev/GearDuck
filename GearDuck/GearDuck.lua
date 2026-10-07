@@ -27,12 +27,51 @@ local function InvalidateEvaluationCache()
     end
 end
 
-local gearDuckDB = profiles.NormalizeDatabase(rawget(_G, "GearDuckDB"))
-local gearDuckWeightsDB = profiles.EnsureActivityWeightProfiles(gearDuckDB)
+local function ResolveCharacterDatabases()
+    local rootDB = profiles.NormalizeDatabase(rawget(_G, "GearDuckDB"))
+    local rootWeightsDB = rawget(_G, "GearDuckWeightsDB")
+    local characterDB, characterWeightsDB, normalizedRootWeightsDB =
+        profiles.GetCharacterDatabases(rootDB, rootWeightsDB, profiles.GetCharacterKey())
+    rawset(_G, "GearDuckWeightsDB", normalizedRootWeightsDB)
+    return characterDB, characterWeightsDB
+end
+
+local gearDuckDB, gearDuckWeightsDB = ResolveCharacterDatabases()
 EvaluateItem, ClearEvaluationCache, SetEvaluationDatabases =
     addon.evaluation.Create(gearDuckDB, gearDuckWeightsDB)
 
 optionsPanel, optionsCategory = addon.options.Create(gearDuckDB, gearDuckWeightsDB, InvalidateEvaluationCache)
+
+local function OpenOptionsPanel()
+    local settings = rawget(_G, "Settings")
+    local openToCategory = settings and rawget(settings, "OpenToCategory")
+    if openToCategory and optionsCategory and optionsCategory.GetID then
+        openToCategory(optionsCategory:GetID())
+        return true
+    end
+
+    local openLegacy = rawget(_G, "InterfaceOptionsFrame_OpenToCategory")
+    if openLegacy and optionsPanel then
+        openLegacy(optionsPanel)
+        openLegacy(optionsPanel)
+        return true
+    end
+
+    return false
+end
+
+local onboardingUI = addon.onboarding.Create({
+    getDatabases = function()
+        return gearDuckDB, gearDuckWeightsDB
+    end,
+    onChanged = function()
+        InvalidateEvaluationCache()
+        if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
+            optionsPanel:RefreshGearDuckOptions()
+        end
+    end,
+    openOptions = OpenOptionsPanel,
+})
 
 local playerBuildFrame = CreateFrame("Frame")
 playerBuildFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -91,6 +130,7 @@ local function PrintHelp()
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd help|r - Show this command list.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd debug|r - Print the hovered item's stats and Power Level math.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd options|r - Open GearDuck's AddOns settings panel.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd setup|r - Reopen the first-time setup guide.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd profile <raid|quest|pvp>|r - Show only the selected profile.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd hitcap <value>|r - Set both hit caps for the selected class/activity.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd hitcap <physical|spell> <value>|r - Set one hit cap as a percentage.")
@@ -98,23 +138,6 @@ local function PrintHelp()
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd enchantbonus <value|clear>|r - Set/clear a proc-only bonus for the hovered enchant.")
     DEFAULT_CHAT_FRAME:AddMessage("|cffffff00/gd setbonus <pieces> <value|clear>|r - Set/clear a hovered set's threshold score.")
     DEFAULT_CHAT_FRAME:AddMessage("Use |cffffff00/gearduck|r as an alias for |cffffff00/gd|r.")
-end
-
-local function OpenOptionsPanel()
-    local settings = rawget(_G, "Settings")
-    local openToCategory = settings and rawget(settings, "OpenToCategory")
-    if openToCategory and optionsCategory and optionsCategory.GetID then
-        openToCategory(optionsCategory:GetID())
-        return true
-    end
-
-    local openLegacy = rawget(_G, "InterfaceOptionsFrame_OpenToCategory")
-    if openLegacy and optionsPanel then
-        openLegacy(optionsPanel)
-        return true
-    end
-
-    return false
 end
 
 local function RefreshLastEvaluation()
@@ -169,6 +192,11 @@ SlashCmdList.GEARDUCK = function(message)
         if not OpenOptionsPanel() then
             DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Could not open the AddOns settings panel.")
         end
+        return
+    end
+
+    if command == "setup" then
+        onboardingUI.Show()
         return
     end
 
@@ -303,27 +331,23 @@ end
 
 local loaderFrame = CreateFrame("Frame")
 loaderFrame:RegisterEvent("ADDON_LOADED")
+loaderFrame:RegisterEvent("PLAYER_LOGIN")
 loaderFrame:SetScript("OnEvent", function(self, event, addonName)
-    if addonName == "GearDuck" then -- Replace with your exact AddOn folder name if different
-        local savedDB = rawget(_G, "GearDuckDB")
-        if type(savedDB) == "table" then
-            gearDuckDB = profiles.NormalizeDatabase(savedDB)
+    if event == "PLAYER_LOGIN" then
+        self:UnregisterEvent("PLAYER_LOGIN")
+        if not addon.onboarding.IsComplete(gearDuckDB) then
+            onboardingUI.Show()
+        end
+        return
+    end
 
-            if not gearDuckWeightsDB.legacyMigrationComplete then
-                profiles.MigrateLegacyWeightProfiles(gearDuckDB, gearDuckWeightsDB)
-                gearDuckWeightsDB.legacyMigrationComplete = true
-            end
-            gearDuckDB.weights = {}
-            gearDuckDB.talentWeights = {}
-            gearDuckDB.hitCaps = {}
-            gearDuckWeightsDB = profiles.EnsureActivityWeightProfiles(gearDuckDB)
-            SetEvaluationDatabases(gearDuckDB, gearDuckWeightsDB)
-            optionsPanel.SetGearDuckDatabases(gearDuckDB, gearDuckWeightsDB)
-            upgradeUI.SetDatabase(gearDuckDB)
-            rawset(_G, "GearDuckDB", gearDuckDB)
-            if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
-                optionsPanel:RefreshGearDuckOptions()
-            end
+    if addonName == "GearDuck" then
+        gearDuckDB, gearDuckWeightsDB = ResolveCharacterDatabases()
+        SetEvaluationDatabases(gearDuckDB, gearDuckWeightsDB)
+        optionsPanel.SetGearDuckDatabases(gearDuckDB, gearDuckWeightsDB)
+        upgradeUI.SetDatabase(gearDuckDB)
+        if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
+            optionsPanel:RefreshGearDuckOptions()
         end
         self:UnregisterEvent("ADDON_LOADED")
     end

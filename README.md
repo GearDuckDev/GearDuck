@@ -18,6 +18,7 @@ GearDuck is a lightweight World of Warcraft: Forever addon that estimates item u
 - Shows Questing comparisons by default, with options to show any combination of Questing, Raid, and PvP comparisons in that order. Each context has a configurable hit cap.
 - Supports manual Power Level values for proc/use effects and set-bonus thresholds.
 - Lets you edit separate class/activity stat-weight profiles in the AddOns settings panel. GearDuck stores them in the companion addon's SavedVariables file, independently of addon code updates.
+- Shows a first-login setup guide for each character (explaining Power Level, then asking about stat weights, tooltip profiles, and upgrade arrows). Settings and stat weights are saved per character; reopen the guide with `/gd setup`.
 - Includes `/gd debug` to print item stats, weighted contributions, and comparison math to chat.
 
 ## Install
@@ -43,6 +44,7 @@ Interface/
     │   ├── GearDuckPresentation.lua
     │   ├── GearDuckOptions.lua
     │   ├── GearDuckUpgradeIndicators.lua
+    │   ├── GearDuckOnboarding.lua
     │   ├── GearDuckHit.lua
     │   ├── GearDuck.lua
     │   └── GearDuck.toc
@@ -57,6 +59,7 @@ GearDuckWeights is a required companion addon. WoW writes its `GearDuckWeightsDB
 
 | Command | Description |
 | --- | --- |
+| `/gd setup` | Reopen the first-time setup guide. |
 | `/gd help` | Show the addon command list. This is also shown by `/gd` with no argument. |
 | `/gd debug` | Print the most recently hovered item's raw stats, weighted math, and slot comparisons. |
 | `/gd options` | Open the GearDuck settings panel. |
