@@ -77,11 +77,11 @@ end
 local PAGES = {
     {
         title = "Welcome to GearDuck",
-        text = "Thanks for installing GearDuck!\n\nGearDuck helps you decide which gear to wear by turning every item into a single number you can compare at a glance.\n\nThis short setup takes about a minute. You can skip it at any time and GearDuck will use its recommended defaults.",
+        text = "Thanks for installing GearDuck!\n\nGearDuck helps you decide which gear to wear by turning every item into a single number you can compare at a glance. Its recommended starting weights adapt to your class, active talent tree, and activity.\n\nThese are broad Classic-style estimates, not simulation results. You can edit them any time, and this short setup takes about a minute.",
     },
     {
         title = "What is Power Level?",
-        text = "Power Level is GearDuck's score for how good an item is for your character. A higher number means a stronger item for you.\n\nInstead of judging gear by item level or a single stat, GearDuck adds up everything an item gives you, counting each stat by how much it matters to your class and talent tree.",
+        text = "Power Level is GearDuck's score for how good an item is for your character. A higher number means a stronger item for you.\n\nInstead of judging gear by item level or a single stat, GearDuck adds up everything an item gives you, counting each stat by how much it matters to your class, active talent tree, and selected activity.",
     },
     {
         title = "How is it calculated?",
@@ -89,16 +89,16 @@ local PAGES = {
     },
     {
         title = "How the addon works",
-        text = "Hover over any item and GearDuck adds a line to its tooltip comparing it with what you have equipped: Upgrade, Sidegrade, or Downgrade, plus the Power Level difference.\n\nRings, trinkets, and one-handed weapons show a comparison for each slot. Items you cannot use say Cannot Use. Your active talent tree is detected automatically and has its own weights.\n\nYou can change anything later with /gd options.",
+        text = "Hover over any item and GearDuck adds a line to its tooltip comparing it with what you have equipped: Upgrade, Sidegrade, or Downgrade, plus the Power Level difference.\n\nRings, trinkets, and one-handed weapons show a comparison for each slot. Items you cannot use say Cannot Use. Your class and active talent tree are detected automatically; you can show Questing, Raid, and PvP comparisons with their own starter weights.\n\nYou can change anything later with /gd options.",
     },
     {
         title = "Stat weights",
-        text = "Which stat weights would you like to use?",
+        text = "Which stat weights would you like to use?\n\nRecommended weights vary by class, major talent tree, and activity. They are broad level-60 Classic-style estimates to get you started, not exact simulations; gear, talents, and playstyle can change what is best.",
         widgets = "weights",
     },
     {
         title = "Tooltip profiles",
-        text = "Which profiles should GearDuck show on item tooltips? Choose one or more.",
+        text = "Which activity profiles should GearDuck show on item tooltips? Choose one or more. Each uses its own class and talent-tree starter weights; you can customize them later.",
         widgets = "profiles",
     },
     {
@@ -290,7 +290,7 @@ function onboarding.Create(env)
             env.onChanged()
             RefreshChoices()
         end
-        weightRadios.default = Choice("weights", CreateRadio(frame, "Use the default stat weights (recommended)", 50, -170, function()
+        weightRadios.default = Choice("weights", CreateRadio(frame, "Use recommended class, tree, and activity weights", 50, -170, function()
             ChooseWeights("default")
         end))
         weightRadios.custom = Choice("weights", CreateRadio(frame, "Use custom stat weights", 50, -204, function()
@@ -300,7 +300,7 @@ function onboarding.Create(env)
         customNote:SetPoint("TOPLEFT", frame, "TOPLEFT", 82, -232)
         customNote:SetWidth(400)
         customNote:SetJustifyH("LEFT")
-        customNote:SetText("The settings panel will open when you finish setup so you can edit your weights.")
+        customNote:SetText("These are general estimates, not sim-derived weights. The settings panel will open when you finish setup so you can edit yours.")
         Choice("weights", customNote)
 
         for index, context in ipairs(SCORING_CONTEXT_ORDER) do

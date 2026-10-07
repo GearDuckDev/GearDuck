@@ -115,7 +115,7 @@ data.STAT_KEYS = {
     WeaponExtraAttackPercent = {},
 }
 
--- Rough level-60 Classic PvE starting weights, not simulation-derived values.
+-- Rough level-60 Classic starting weights, not simulation-derived values.
 data.CLASS_WEIGHTS = {
     WARRIOR = {
         Strength = 2.0, Agility = 0.7, Stamina = 0.7, Hit = 1.3,
@@ -166,6 +166,111 @@ data.CLASS_WEIGHTS = {
     },
 }
 
+data.CLASS_TALENT_TREE_NAMES = {
+    WARRIOR = { TREE_1 = "Arms", TREE_2 = "Fury", TREE_3 = "Protection" },
+    PALADIN = { TREE_1 = "Holy", TREE_2 = "Protection", TREE_3 = "Retribution" },
+    HUNTER = { TREE_1 = "Beast Mastery", TREE_2 = "Marksmanship", TREE_3 = "Survival" },
+    ROGUE = { TREE_1 = "Assassination", TREE_2 = "Combat", TREE_3 = "Subtlety" },
+    PRIEST = { TREE_1 = "Discipline", TREE_2 = "Holy", TREE_3 = "Shadow" },
+    SHAMAN = { TREE_1 = "Elemental", TREE_2 = "Enhancement", TREE_3 = "Restoration" },
+    MAGE = { TREE_1 = "Arcane", TREE_2 = "Fire", TREE_3 = "Frost" },
+    WARLOCK = { TREE_1 = "Affliction", TREE_2 = "Demonology", TREE_3 = "Destruction" },
+    DRUID = { TREE_1 = "Balance", TREE_2 = "Feral Combat", TREE_3 = "Restoration" },
+}
+
+-- Sparse adjustments to the class baselines above. These are broad tree/role
+-- heuristics intended to be useful before a player has custom weights.
+data.CLASS_TALENT_WEIGHT_OVERRIDES = {
+    WARRIOR = {
+        TREE_1 = { Strength = 2.2, Agility = 0.8, Hit = 1.4, Crit = 1.1 },
+        TREE_2 = { Strength = 2.1, Agility = 0.8, Hit = 1.5, AttackPower = 0.9 },
+        TREE_3 = {
+            Strength = 1.6, Agility = 0.5, Stamina = 1.1, Hit = 1.0, Crit = 0.6,
+            Defense = 1.2, Dodge = 0.8, Parry = 0.8, Armor = 0.08,
+        },
+    },
+    PALADIN = {
+        TREE_1 = {
+            Strength = 0.6, Intellect = 1.4, Spirit = 0.5, SpellPower = 1.2,
+            Healing = 1.4, ManaRegen = 0.8, WeaponDPS = 0.6,
+        },
+        TREE_2 = {
+            Strength = 1.2, Stamina = 1.0, Intellect = 0.6, Hit = 0.7,
+            SpellPower = 0.5, Healing = 0.5, Defense = 1.1, Armor = 0.08,
+        },
+        TREE_3 = {
+            Strength = 1.7, Agility = 0.5, Hit = 1.0, Crit = 0.9,
+            AttackPower = 1.0, SpellPower = 0.4, Healing = 0.3, WeaponDPS = 1.8,
+        },
+    },
+    HUNTER = {
+        TREE_1 = { Agility = 2.1, Stamina = 0.7, RangedAttackPower = 1.4, WeaponDPS = 1.9 },
+        TREE_2 = { Agility = 2.2, Hit = 1.3, Crit = 1.2, RangedAttackPower = 1.5 },
+        TREE_3 = {
+            Agility = 2.0, Stamina = 0.8, Hit = 1.2, Crit = 1.2,
+            AttackPower = 0.9, RangedAttackPower = 1.2, WeaponDPS = 1.6,
+        },
+    },
+    ROGUE = {
+        TREE_1 = { Agility = 2.1, Hit = 1.4, Crit = 1.2, AttackPower = 1.1 },
+        TREE_2 = { Agility = 2.0, Hit = 1.6, Crit = 1.0, WeaponDPS = 2.1, WeaponSkill = 0.8 },
+        TREE_3 = { Agility = 2.1, Stamina = 0.6, Hit = 1.3, Crit = 1.2, AttackPower = 1.0 },
+    },
+    PRIEST = {
+        TREE_1 = { Intellect = 1.3, Spirit = 1.0, SpellPower = 1.0, Healing = 1.1, ManaRegen = 0.9 },
+        TREE_2 = { Intellect = 1.2, Spirit = 1.0, SpellPower = 1.0, Healing = 1.4, ManaRegen = 0.9 },
+        TREE_3 = { Intellect = 1.3, Spirit = 0.7, Hit = 0.8, Crit = 0.6, SpellPower = 1.5, Healing = 0.3 },
+    },
+    SHAMAN = {
+        TREE_1 = {
+            Strength = 0.3, Agility = 0.4, Intellect = 1.2, Spirit = 0.4, Hit = 0.8,
+            Crit = 0.8, SpellPower = 1.4, Healing = 0.3, ManaRegen = 0.6, WeaponDPS = 0.5,
+        },
+        TREE_2 = {
+            Strength = 1.0, Agility = 1.0, Intellect = 0.7, Hit = 1.0, Crit = 0.9,
+            AttackPower = 0.9, SpellPower = 0.5, Healing = 0.3, WeaponDPS = 1.6,
+        },
+        TREE_3 = {
+            Strength = 0.3, Agility = 0.4, Intellect = 1.2, Spirit = 0.7, Hit = 0.4,
+            Crit = 0.4, SpellPower = 0.8, Healing = 1.4, ManaRegen = 0.8, WeaponDPS = 0.4,
+        },
+    },
+    MAGE = {
+        TREE_1 = { Intellect = 1.5, Spirit = 0.6, Hit = 1.0, Crit = 0.7, SpellPower = 1.4, ManaRegen = 0.6 },
+        TREE_2 = { Intellect = 1.3, Spirit = 0.4, Hit = 1.1, Crit = 1.0, SpellPower = 1.6, ManaRegen = 0.3 },
+        TREE_3 = { Intellect = 1.4, Spirit = 0.6, Hit = 1.0, Crit = 0.8, SpellPower = 1.5, ManaRegen = 0.5 },
+    },
+    WARLOCK = {
+        TREE_1 = { Stamina = 0.8, Intellect = 1.2, Spirit = 0.4, Hit = 1.0, Crit = 0.6, SpellPower = 1.6 },
+        TREE_2 = { Stamina = 0.9, Intellect = 1.2, Spirit = 0.3, Hit = 0.9, Crit = 0.6, SpellPower = 1.4 },
+        TREE_3 = { Stamina = 0.7, Intellect = 1.1, Hit = 1.1, Crit = 0.9, SpellPower = 1.7 },
+    },
+    DRUID = {
+        TREE_1 = {
+            Strength = 0.2, Agility = 0.4, Intellect = 1.2, Spirit = 0.6, Hit = 0.9,
+            Crit = 0.8, AttackPower = 0.2, SpellPower = 1.4, Healing = 0.5, ManaRegen = 0.6,
+        },
+        TREE_2 = {
+            Strength = 1.1, Agility = 1.3, Stamina = 0.9, Intellect = 0.4, Hit = 1.0,
+            Crit = 1.0, AttackPower = 1.0, SpellPower = 0.1, Healing = 0.1,
+            Defense = 0.7, Dodge = 0.7, Armor = 0.06, WeaponDPS = 1.3,
+        },
+        TREE_3 = {
+            Strength = 0.2, Agility = 0.4, Intellect = 1.1, Spirit = 0.8, Hit = 0.3,
+            Crit = 0.3, AttackPower = 0.2, SpellPower = 0.8, Healing = 1.3, ManaRegen = 0.7,
+        },
+    },
+}
+
+data.ACTIVITY_WEIGHT_MULTIPLIERS = {
+    QUEST = {},
+    RAID = { Hit = 1.1, Spirit = 1.05, ManaRegen = 1.1, Stamina = 0.9 },
+    PVP = {
+        Stamina = 1.35, Hit = 0.85, Defense = 1.2, Dodge = 1.2, Parry = 1.2,
+        Spirit = 0.9, ManaRegen = 1.1,
+    },
+}
+
 data.CLASS_ACTIVITY_HIT_CAPS = {
     QUEST = { physical = 5, spell = 3 },
     RAID = { physical = 9, spell = 16 },
@@ -201,17 +306,44 @@ local function copyWeights(weights)
     return copy
 end
 
+local function buildActivityWeights(baseWeights, contextKey)
+    local weights = copyWeights(baseWeights)
+    local multipliers = data.ACTIVITY_WEIGHT_MULTIPLIERS[contextKey] or {}
+    for statName, multiplier in pairs(multipliers) do
+        if weights[statName] then
+            weights[statName] = weights[statName] * multiplier
+        end
+    end
+    return weights
+end
+
 data.CLASS_ACTIVITY_DEFAULTS = {}
 for classFile, classWeights in pairs(data.CLASS_WEIGHTS) do
     data.CLASS_ACTIVITY_DEFAULTS[classFile] = {}
     for _, context in ipairs(data.SCORING_CONTEXT_ORDER) do
         data.CLASS_ACTIVITY_DEFAULTS[classFile][context.key] = {
-            weights = copyWeights(classWeights),
+            weights = buildActivityWeights(classWeights, context.key),
             hitCaps = {
                 physical = data.CLASS_ACTIVITY_HIT_CAPS[context.key].physical,
                 spell = data.CLASS_ACTIVITY_HIT_CAPS[context.key].spell,
             },
         }
+    end
+end
+
+data.CLASS_TALENT_DEFAULTS = {}
+for classFile, treeProfiles in pairs(data.CLASS_TALENT_WEIGHT_OVERRIDES) do
+    data.CLASS_TALENT_DEFAULTS[classFile] = {}
+    for _, context in ipairs(data.SCORING_CONTEXT_ORDER) do
+        local contextProfiles = {}
+        data.CLASS_TALENT_DEFAULTS[classFile][context.key] = contextProfiles
+        for treeKey, overrides in pairs(treeProfiles) do
+            local treeWeights = copyWeights(data.CLASS_WEIGHTS[classFile])
+            for statName, weight in pairs(overrides) do
+                treeWeights[statName] = weight
+            end
+            contextProfiles[treeKey] = buildActivityWeights(treeWeights, context.key)
+        end
     end
 end
 

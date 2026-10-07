@@ -2,7 +2,7 @@
 ## Title: GearDuck
 ## Notes: Weighted item score comparison on item tooltips.
 ## Author: GearDuckDev
-## Version: 0.6.2-release
+## Version: 0.6.3-release
 ## SavedVariables: GearDuckDB
 ## Dependencies: GearDuckWeights
 

@@ -4,12 +4,22 @@ local profiles = {}
 
 addon.profiles = profiles
 
+-- Older SavedVariables contain class-only defaults; this tracks the preset migration.
+local WEIGHT_DEFAULTS_VERSION = 1
+
 local function CopyWeights(weights)
     local copy = {}
     for statName, weight in pairs(weights) do
         copy[statName] = weight
     end
     return copy
+end
+
+local function GetTalentDefaults(classFile, contextKey, treeKey)
+    local classDefaults = data.CLASS_TALENT_DEFAULTS[classFile]
+    local contextDefaults = classDefaults and classDefaults[contextKey]
+    return (contextDefaults and contextDefaults[treeKey])
+        or data.CLASS_ACTIVITY_DEFAULTS[classFile][contextKey].weights
 end
 
 function profiles.EnsureWeightProfile(profile, defaults)
@@ -209,7 +219,17 @@ function profiles.EnsureActivityWeightProfiles(legacyDatabase, characterWeightDa
                 local legacyProfile = legacyWeights[classFile]
                 profile.weights = CopyWeights(type(legacyProfile) == "table" and legacyProfile or defaults.weights)
             end
+            if profile.weightDefaultsVersion ~= WEIGHT_DEFAULTS_VERSION then
+                local oldDefaults = data.CLASS_WEIGHTS[classFile]
+                for statName in pairs(data.STAT_KEYS) do
+                    if type(profile.weights[statName]) == "number"
+                        and profile.weights[statName] == (oldDefaults[statName] or 0) then
+                        profile.weights[statName] = defaults.weights[statName] or 0
+                    end
+                end
+            end
             profile.weights = profiles.EnsureWeightProfile(profile.weights, defaults.weights)
+            profile.weightDefaultsVersion = WEIGHT_DEFAULTS_VERSION
 
             if type(profile.hitCaps) ~= "table" then
                 profile.hitCaps = {
@@ -241,9 +261,27 @@ function profiles.EnsureActivityWeightProfiles(legacyDatabase, characterWeightDa
                 end
             end
 
+            local migrateTalentDefaults = profile.talentDefaultsVersion ~= WEIGHT_DEFAULTS_VERSION
             for treeKey, treeProfile in pairs(profile.talentWeights) do
-                profile.talentWeights[treeKey] = profiles.EnsureWeightProfile(treeProfile, defaults.weights)
+                if type(treeProfile) ~= "table" then
+                    treeProfile = {}
+                end
+                local treeDefaults = GetTalentDefaults(classFile, contextKey, treeKey)
+                if migrateTalentDefaults then
+                    local oldDefaults = data.CLASS_WEIGHTS[classFile]
+                    for statName in pairs(data.STAT_KEYS) do
+                        if type(treeProfile[statName]) == "number"
+                            and treeProfile[statName] == (oldDefaults[statName] or 0) then
+                            treeProfile[statName] = treeDefaults[statName] or 0
+                        end
+                    end
+                end
+                profile.talentWeights[treeKey] = profiles.EnsureWeightProfile(
+                    treeProfile,
+                    treeDefaults
+                )
             end
+            profile.talentDefaultsVersion = WEIGHT_DEFAULTS_VERSION
         end
     end
 
@@ -259,7 +297,7 @@ function profiles.GetTalentWeightProfile(weightDatabase, classFile, contextKey, 
         return activityProfile.weights
     end
 
-    local defaults = data.CLASS_ACTIVITY_DEFAULTS[classFile][contextKey].weights
+    local defaults = GetTalentDefaults(classFile, contextKey, treeKey)
     activityProfile.talentWeights[treeKey] = profiles.EnsureWeightProfile(
         activityProfile.talentWeights[treeKey],
         defaults
@@ -318,7 +356,10 @@ function profiles.MigrateLegacyWeightProfiles(legacyDatabase, weightDatabase)
                 for treeKey, treeWeights in pairs(legacyClassTalentWeights) do
                     if type(treeWeights) == "table" then
                         profile.talentWeights[treeKey] =
-                            profiles.EnsureWeightProfile(CopyWeights(treeWeights), defaults.weights)
+                            profiles.EnsureWeightProfile(
+                                CopyWeights(treeWeights),
+                                GetTalentDefaults(classFile, context.key, treeKey)
+                            )
                     end
                 end
             end
