@@ -97,14 +97,16 @@ function scoring.ScoreItem(database, itemLink, weights)
     end
 
     local _, enchantID = items.GetUnenchantedItemLink(itemLink)
-    local enchantBonus = tonumber(enchantID and database.enchantBonuses[enchantID]) or 0
-    if enchantBonus ~= 0 then
-        score = score + enchantBonus
-        breakdown.EnchantEffectBonus = {
-            amount = enchantBonus,
-            weight = 1,
-            contribution = enchantBonus,
-        }
+    if enchantID and enchantID ~= "" then
+        local enchantBonus = database.enchantBonuses[enchantID] or 0
+        if enchantBonus ~= 0 then
+            score = score + enchantBonus
+            breakdown.EnchantEffectBonus = {
+                amount = enchantBonus,
+                weight = 1,
+                contribution = enchantBonus,
+            }
+        end
     end
 
     return score, breakdown, stats
