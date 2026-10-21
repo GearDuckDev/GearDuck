@@ -12,6 +12,7 @@ Desktop.ini
 *.zip
 
 # Personal Files
+Link-WoWAddOns.ps1
 TODO.md
 .env
 keys.json
