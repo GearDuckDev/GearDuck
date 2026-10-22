@@ -1,6 +1,7 @@
 ignore:
   - README.md
   - .vscode
+  - GearDuck-Media-0.6.4-release
 
 package-as: GearDuck
 
