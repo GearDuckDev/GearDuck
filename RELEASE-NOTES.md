@@ -1,6 +1,6 @@
-# GearDuck 0.6.5-release
+# GearDuck 0.6.6-release
 
-GearDuck 0.6.5-release helps you compare gear in WoW: Forever using a
+GearDuck 0.6.6-release helps you compare gear in WoW: Forever using a
 customizable Power Level score.
 
 ## Bug fixes
