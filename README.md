@@ -4,6 +4,29 @@ GearDuck is a lightweight World of Warcraft: Forever addon that estimates item u
 
 > **Compatibility:** Built for WoW: Forever Beta 1.60.1 (`Interface: 16001`). The addon uses the modern item tooltip post-call API.
 
+## Screenshots
+
+### Spot upgrades and compare profiles
+
+GearDuck adds Power Level comparisons to item tooltips and marks eligible bag upgrades with a green arrow. Enable multiple activity profiles to see their comparisons together.
+
+![Item tooltip showing Questing and Raid upgrade comparisons, with a green upgrade arrow on the backpack item](GearDuck-Media-0.6.4-release/docs/screenshots/02-tooltip-profiles.png)
+
+### Tune your weights
+
+Choose which profiles appear in tooltips, toggle upgrade arrows, and edit class/activity weights and hit caps.
+
+![GearDuck settings showing profile choices, upgrade arrows, hit caps, and editable stat weights](GearDuck-Media-0.6.4-release/docs/screenshots/03-options-weights.png)
+
+<details>
+<summary>First-time setup guide</summary>
+
+Reopen the in-game guide at any time with `/gd setup`.
+
+![GearDuck setup guide welcome page](GearDuck-Media-0.6.4-release/docs/screenshots/04-setup-guide.png)
+
+</details>
+
 ## Features
 
 - Detects your current class and selects its weight profile automatically. Profiles are provided for the nine original WoW Classic classes.
