@@ -68,7 +68,19 @@ numbers in an image or imply a result the addon did not actually produce.
 ## Publishing notes
 
 - Use the four PNGs directly; do not enlarge them or convert them back to JPEG.
-- For CurseForge, upload the images through its gallery/editor. Relative
-  Markdown links in this kit are local previews, not hosted public image URLs.
-- Keep this media kit separate from the installable addon download. The
-  repository's `.pkgmeta` excludes this versioned media folder from packaging.
+- Use the single root [CURSEFORGE.md](../CURSEFORGE.md) as the project
+  description. Its image links use
+  `https://raw.githubusercontent.com/GearDuckDev/GearDuck/main/docs/screenshots/`
+  so the embedded screenshots work outside GitHub too. Commit and push these
+  paths to `main` before publishing the description.
+- Upload the PNGs separately if you also want a CurseForge gallery with the
+  titles and captions above. Relative links here provide a local/GitHub preview.
+- Publishing sources live at the repository root (`CURSEFORGE.md` and
+  `RELEASE-NOTES.md`), with this guide and the PNGs under `docs/`. There is no
+  separate versioned media source folder or duplicate description.
+- Keep publishing materials separate from the installable addon download.
+  The repository's `.pkgmeta` excludes `docs/`, `CURSEFORGE.md`, and
+  `RELEASE-NOTES.md` from addon packaging.
+- The local `GearDuck-Media-0.6.4-release.zip` is a distribution copy of the root
+  README, CurseForge description, release notes, and `docs/`; edit the
+  repository sources, not extracted copies. Generated ZIPs remain Git-ignored.

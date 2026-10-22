@@ -1,7 +1,9 @@
 ignore:
   - README.md
   - .vscode
-  - GearDuck-Media-0.6.4-release
+  - docs
+  - CURSEFORGE.md
+  - RELEASE-NOTES.md
 
 package-as: GearDuck
 

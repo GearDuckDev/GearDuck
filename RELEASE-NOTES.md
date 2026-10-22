@@ -22,5 +22,6 @@ Built for WoW: Forever Beta 1.60.1 (`Interface: 16001`). GearDuck requires the
 GearDuck Weights companion addon. Install both addon folders side by side in
 `Interface/AddOns`.
 
-See `CURSEFORGE.md` for the full feature description and
-`docs/SCREENSHOTS.md` for the four prepared release images and upload captions.
+See [CURSEFORGE.md](CURSEFORGE.md) for the full feature description and
+[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) for the four prepared release images
+and upload captions.
