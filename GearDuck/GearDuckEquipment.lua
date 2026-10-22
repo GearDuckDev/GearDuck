@@ -7,10 +7,12 @@ local data = addon.data
 local talents = addon.talents
 local weaponTalentEffectsCache
 local shamanTwoHandedWeaponTalentActive = false
+local shamanDualWieldTalentActive = false
 
 function equipment.ResetTalentCache()
     weaponTalentEffectsCache = nil
     shamanTwoHandedWeaponTalentActive = false
+    shamanDualWieldTalentActive = false
 end
 
 function equipment.GetWeaponTalentEffects()
@@ -19,6 +21,8 @@ function equipment.GetWeaponTalentEffects()
     end
 
     local bonuses = {}
+    shamanTwoHandedWeaponTalentActive = false
+    shamanDualWieldTalentActive = false
 
     local function GetSubclassBonus(subclassID)
         if type(bonuses[subclassID]) ~= "table" then
@@ -41,25 +45,29 @@ function equipment.GetWeaponTalentEffects()
     end
 
     local _, classFile = UnitClass("player")
-    talents.ForEachActiveTalent(function(talentName, rank)
+    local scanned = talents.ForEachActiveTalent(function(talentName, rank)
         local normalizedTalentName = string.lower(talentName or ""):gsub("%W", "")
-        if classFile == "SHAMAN" and normalizedTalentName == "twohandedaxesandmaces" and (tonumber(rank) or 0) > 0 then
-            shamanTwoHandedWeaponTalentActive = true
+        local numericRank = tonumber(rank) or 0
+        if classFile == "SHAMAN" and numericRank > 0 then
+            if normalizedTalentName == "twohandedaxesandmaces" then
+                shamanTwoHandedWeaponTalentActive = true
+            elseif normalizedTalentName == "dualwield" then
+                shamanDualWieldTalentActive = true
+            end
         end
 
         local classDefinitions = talentName and data.TALENT_WEAPON_EFFECTS[string.lower(talentName)]
         local definition = classDefinitions and classDefinitions[classFile]
-        rank = tonumber(rank) or 0
-        if not definition or rank <= 0 then
+        if not definition or numericRank <= 0 then
             return
         end
 
-        local skill = definition.skillRanks and definition.skillRanks[rank]
-            or (definition.skillPerRank and definition.skillPerRank * rank)
+        local skill = definition.skillRanks and definition.skillRanks[numericRank]
+            or (definition.skillPerRank and definition.skillPerRank * numericRank)
             or 0
-        local critPercent = (definition.critPerRank or 0) * rank
-        local extraAttackPercent = (definition.extraAttackPerRank or 0) * rank
-        local damagePercent = (definition.damagePerRank or 0) * rank
+        local critPercent = (definition.critPerRank or 0) * numericRank
+        local extraAttackPercent = (definition.extraAttackPerRank or 0) * numericRank
+        local damagePercent = (definition.damagePerRank or 0) * numericRank
         for _, subclassID in ipairs(definition.subclasses) do
             local bonus = GetSubclassBonus(subclassID)
             bonus.skill = bonus.skill + skill
@@ -69,17 +77,39 @@ function equipment.GetWeaponTalentEffects()
         end
     end)
 
-    weaponTalentEffectsCache = bonuses
-    return weaponTalentEffectsCache
+    if scanned then
+        weaponTalentEffectsCache = bonuses
+    end
+    return bonuses
+end
+
+function equipment.CanPlayerDualWield()
+    local _, classFile = UnitClass("player")
+    local playerLevel = tonumber(UnitLevel and UnitLevel("player")) or 60
+    if classFile == "ROGUE" then
+        return playerLevel >= 10
+    elseif classFile == "WARRIOR" or classFile == "HUNTER" then
+        return playerLevel >= 20
+    elseif classFile == "SHAMAN" then
+        equipment.GetWeaponTalentEffects()
+        return shamanDualWieldTalentActive == true
+    elseif classFile == "PALADIN"
+        or classFile == "PRIEST"
+        or classFile == "MAGE"
+        or classFile == "WARLOCK"
+        or classFile == "DRUID" then
+        return false
+    end
+    return true
 end
 
 function equipment.GetItemClassInfo(itemLink)
     local fetchInfo = (C_Item and rawget(C_Item, "GetItemInfoInstant")) or rawget(_G, "GetItemInfoInstant")
     if not itemLink or not fetchInfo then
-        return nil, nil
+        return nil, nil, nil
     end
-    local _, _, _, _, _, classID, subClassID = fetchInfo(itemLink)
-    return classID, subClassID
+    local _, _, _, equipLocation, _, classID, subClassID = fetchInfo(itemLink)
+    return classID, subClassID, equipLocation
 end
 
 function equipment.CanPlayerEquipItem(itemLink)
@@ -88,7 +118,7 @@ function equipment.CanPlayerEquipItem(itemLink)
     end
 
     local className, classFile = UnitClass("player")
-    local classID, subClassID = equipment.GetItemClassInfo(itemLink)
+    local classID, subClassID, equipLocation = equipment.GetItemClassInfo(itemLink)
     local playerLevel = tonumber(UnitLevel("player")) or 0
 
     local fetchItemInfo = (C_Item and rawget(C_Item, "GetItemInfo")) or rawget(_G, "GetItemInfo")
@@ -113,6 +143,17 @@ function equipment.CanPlayerEquipItem(itemLink)
             return false, string.format("%s training requires level %d", weaponName, proficiency)
         elseif not proficiency then
             return false, string.format("%s cannot equip %s", className or "This class", weaponName)
+        end
+
+        if equipLocation == "INVTYPE_WEAPONOFFHAND" and not equipment.CanPlayerDualWield() then
+            if classFile == "SHAMAN" then
+                return false, "Requires the Dual Wield talent"
+            elseif classFile == "ROGUE" then
+                return false, "Dual Wield requires level 10"
+            elseif classFile == "WARRIOR" or classFile == "HUNTER" then
+                return false, "Dual Wield requires level 20"
+            end
+            return false, string.format("%s cannot dual-wield", className or "This class")
         end
     elseif classID == 4 then
         local proficiencies = data.CLASS_ARMOR_PROFICIENCIES[classFile]

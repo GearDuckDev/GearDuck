@@ -19,7 +19,6 @@ function talents.GetActiveTalentTree()
             activeTalentTreeCache and activeTalentTreeCache.configID
     end
 
-    activeTalentTreeScanned = true
     local classTalents = rawget(_G, "C_ClassTalents")
     local traits = rawget(_G, "C_Traits")
     local getActiveConfigID = classTalents and rawget(classTalents, "GetActiveConfigID")
@@ -66,6 +65,7 @@ function talents.GetActiveTalentTree()
                 configID = configID,
                 treeIDs = treeIDs,
             }
+            activeTalentTreeScanned = true
             return activeTalentTreeCache.key, activeTalentTreeCache.name,
                 activeTalentTreeCache.points, activeTalentTreeCache.configID
         end
@@ -74,10 +74,11 @@ function talents.GetActiveTalentTree()
     local getNumTalentTabs = rawget(_G, "GetNumTalentTabs")
     local getTalentTabInfo = rawget(_G, "GetTalentTabInfo")
     if getNumTalentTabs and getTalentTabInfo then
+        local numTabs = getNumTalentTabs() or 0
         local bestIndex
         local bestName
         local bestPoints = 0
-        for index = 1, getNumTalentTabs() do
+        for index = 1, numTabs do
             local first, second, third, _, fifth = getTalentTabInfo(index)
             local name
             local pointsSpent
@@ -101,7 +102,12 @@ function talents.GetActiveTalentTree()
                 name = bestName or ("Talent Tree " .. bestIndex),
                 points = bestPoints,
             }
+            activeTalentTreeScanned = true
             return activeTalentTreeCache.key, activeTalentTreeCache.name, activeTalentTreeCache.points, nil
+        end
+        local playerLevel = tonumber(UnitLevel and UnitLevel("player")) or 0
+        if numTabs > 0 and playerLevel > 0 and playerLevel < 10 then
+            activeTalentTreeScanned = true
         end
     end
 
@@ -113,9 +119,14 @@ function talents.GetActiveTalentTree()
             local _, name = getSpecializationInfo(specialization)
             if name then
                 activeTalentTreeCache = { key = "SPEC_" .. specialization, name = name, points = nil }
+                activeTalentTreeScanned = true
                 return activeTalentTreeCache.key, activeTalentTreeCache.name, nil, nil
             end
         end
+    end
+
+    if not getActiveConfigID and not getNumTalentTabs and not getSpecialization then
+        activeTalentTreeScanned = true
     end
 
     return nil, nil
@@ -129,42 +140,51 @@ function talents.ForEachActiveTalent(callback)
     local getEntryInfo = traits and rawget(traits, "GetEntryInfo")
     local getDefinitionInfo = traits and rawget(traits, "GetDefinitionInfo")
     local getSpellInfo = rawget(_G, "GetSpellInfo")
-    local scannedModernConfig = false
 
     if configID and getTreeNodes and getNodeInfo and getEntryInfo and getDefinitionInfo then
         local configInfo = traits.GetConfigInfo(configID)
-        for _, treeID in ipairs(configInfo and configInfo.treeIDs or {}) do
-            for _, nodeID in ipairs(getTreeNodes(treeID) or {}) do
-                local nodeInfo = getNodeInfo(configID, nodeID)
-                local activeEntry = nodeInfo and nodeInfo.activeEntry
-                local rank = tonumber(activeEntry and activeEntry.rank)
-                    or tonumber(nodeInfo and nodeInfo.ranksPurchased)
-                    or 0
-                local entryID = activeEntry and activeEntry.entryID
-                if entryID and rank > 0 then
-                    local entryInfo = getEntryInfo(configID, entryID)
-                    local definitionInfo = entryInfo and entryInfo.definitionID
-                        and getDefinitionInfo(entryInfo.definitionID)
-                    local talentName = definitionInfo and definitionInfo.overrideName
-                    if not talentName and definitionInfo and definitionInfo.spellID and getSpellInfo then
-                        talentName = getSpellInfo(definitionInfo.spellID)
+        local treeIDs = configInfo and configInfo.treeIDs or {}
+        if #treeIDs > 0 then
+            for _, treeID in ipairs(treeIDs) do
+                for _, nodeID in ipairs(getTreeNodes(treeID) or {}) do
+                    local nodeInfo = getNodeInfo(configID, nodeID)
+                    local activeEntry = nodeInfo and nodeInfo.activeEntry
+                    local rank = tonumber(activeEntry and activeEntry.rank)
+                        or tonumber(nodeInfo and nodeInfo.ranksPurchased)
+                        or 0
+                    local entryID = activeEntry and activeEntry.entryID
+                    if entryID and rank > 0 then
+                        local entryInfo = getEntryInfo(configID, entryID)
+                        local definitionInfo = entryInfo and entryInfo.definitionID
+                            and getDefinitionInfo(entryInfo.definitionID)
+                        local talentName = definitionInfo and definitionInfo.overrideName
+                        if not talentName and definitionInfo and definitionInfo.spellID and getSpellInfo then
+                            talentName = getSpellInfo(definitionInfo.spellID)
+                        end
+                        callback(talentName, rank)
                     end
-                    callback(talentName, rank)
                 end
             end
+            return true
         end
-        scannedModernConfig = true
     end
 
     local getNumTalentTabs = rawget(_G, "GetNumTalentTabs")
     local getNumTalents = rawget(_G, "GetNumTalents")
     local getTalentInfo = rawget(_G, "GetTalentInfo")
-    if not scannedModernConfig and getNumTalentTabs and getNumTalents and getTalentInfo then
-        for tabIndex = 1, getNumTalentTabs() do
+    if getNumTalentTabs and getNumTalents and getTalentInfo then
+        local numTabs = getNumTalentTabs() or 0
+        if numTabs <= 0 then
+            return false
+        end
+        for tabIndex = 1, numTabs do
             for talentIndex = 1, getNumTalents(tabIndex) do
                 local talentName, _, _, _, rank = getTalentInfo(tabIndex, talentIndex)
                 callback(talentName, rank)
             end
         end
+        return true
     end
+
+    return true
 end

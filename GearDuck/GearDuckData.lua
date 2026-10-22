@@ -394,14 +394,15 @@ data.HIT_TALENT_EFFECTS = {
     precision = {
         WARRIOR = { physicalPerRank = 1, maxRanks = 3 },
         PALADIN = { physicalPerRank = 1, spellPerRank = 1, maxRanks = 3 },
-        ROGUE = { physicalPerRank = 1, maxRanks = 3 },
+        ROGUE = { physicalPerRank = 1, maxRanks = 5 },
     },
     surefooted = { HUNTER = { physicalPerRank = 1, maxRanks = 3 } },
     ["arcane focus"] = { MAGE = { spellPerRank = 2, maxRanks = 5 } },
     ["shadow focus"] = { PRIEST = { spellPerRank = 2, maxRanks = 5 } },
     suppression = { WARLOCK = { spellPerRank = 2, maxRanks = 5 } },
     ["balance of power"] = { DRUID = { spellPerRank = 2, maxRanks = 2 } },
-    ["elemental precision"] = { SHAMAN = { spellPerRank = 1, maxRanks = 3 } },
+    ["elemental precision"] = { SHAMAN = { spellPerRank = 2, maxRanks = 3 }, MAGE = { spellPerRank = 1, maxRanks = 3 } },
+    ["nature's guidance"] = { SHAMAN = { physicalPerRank = 1, spellPerRank = 1, maxRanks = 3 } },
 }
 
 data.CLASS_HIT_TYPES = {

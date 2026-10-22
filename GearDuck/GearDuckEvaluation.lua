@@ -20,13 +20,14 @@ function evaluation.Create(database, weightDatabase)
     local gearDuckDB = database
     local gearDuckWeightsDB = weightDatabase
     local evaluationCache = {}
+    local equippedStateCache
 
     local function GetPlayerClassWeights(contextKey)
         local className, classFile
         if UnitClass then
             className, classFile = UnitClass("player")
         end
-    
+
         if classFile and CLASS_ACTIVITY_DEFAULTS[classFile] then
             local treeKey, treeName, treePoints = talents.GetActiveTalentTree()
             local profile = profiles.GetTalentWeightProfile(
@@ -37,49 +38,132 @@ function evaluation.Create(database, weightDatabase)
             )
             return className or classFile, classFile, profile, treeKey, treeName, treePoints
         end
-    
+
         return "Classic default", "DEFAULT", CLASSIC_DEFAULT_WEIGHTS, nil, nil
     end
-    
+
+    local function GetEquippedState()
+        if equippedStateCache then
+            return equippedStateCache
+        end
+
+        local equippedLinks = {}
+        local setCounts = {}
+        local equippedHit = 0
+        local allEquippedLoaded = true
+        for slot = 1, 19 do
+            local equippedLink = GetInventoryItemLink("player", slot)
+            equippedLinks[slot] = equippedLink
+            if equippedLink then
+                if not items.IsItemInfoLoaded(equippedLink) then
+                    allEquippedLoaded = false
+                end
+                equippedHit = equippedHit + (hit.GetItemHitPercent(equippedLink) or 0)
+                local _, setID = items.GetItemMetadata(equippedLink)
+                if setID then
+                    setCounts[setID] = (setCounts[setID] or 0) + 1
+                end
+            end
+        end
+
+        local mainHandClassID, _, mainHandEquipLoc = equipment.GetItemClassInfo(equippedLinks[16])
+        local offHandClassID = equipment.GetItemClassInfo(equippedLinks[17])
+        local state = {
+            allEquippedLoaded = allEquippedLoaded,
+            equippedLinks = equippedLinks,
+            setCounts = setCounts,
+            equippedHit = equippedHit,
+            mainHandIsWeapon = mainHandClassID == 2,
+            offHandIsWeapon = offHandClassID == 2,
+            mainHandIsTwoHander = mainHandEquipLoc == "INVTYPE_2HWEAPON",
+            slotItemsByContext = {},
+        }
+        if allEquippedLoaded then
+            equippedStateCache = state
+        end
+        return state
+    end
+
+    local function GetEquippedSlotItem(equippedState, contextKey, slot, classWeights)
+        local contextSlots = equippedState.slotItemsByContext[contextKey]
+        if not contextSlots then
+            contextSlots = {}
+            equippedState.slotItemsByContext[contextKey] = contextSlots
+        end
+        local cachedSlotItem = contextSlots[slot]
+        if cachedSlotItem then
+            return cachedSlotItem
+        end
+
+        local equippedLink = equippedState.equippedLinks[slot]
+        local score, breakdown, stats = scoring.ScoreItem(
+            gearDuckDB,
+            equippedLink,
+            classWeights
+        )
+        local equippedItemID, equippedSetID = items.GetItemMetadata(equippedLink)
+        local equippedItem = {
+            slot = slot,
+            link = equippedLink,
+            itemID = equippedItemID,
+            setID = equippedSetID,
+            score = score,
+            breakdown = breakdown,
+            stats = stats,
+            hitPercent = hit.GetItemHitPercent(equippedLink) or 0,
+        }
+        contextSlots[slot] = equippedItem
+        return equippedItem
+    end
+
+    local function CacheAndReturnNil(itemLink)
+        if items.IsItemInfoLoaded(itemLink) then
+            evaluationCache[itemLink] = false
+        end
+        return nil
+    end
+
     local function EvaluateItem(itemLink)
         if not itemLink then
             return nil
         end
         local cachedEvaluation = evaluationCache[itemLink]
-        if cachedEvaluation then
-            return cachedEvaluation
+        if cachedEvaluation ~= nil then
+            return cachedEvaluation or nil
         end
-    
+
         local slots, replacesBothWeaponSlots = items.GetReplacementSlots(itemLink)
         if not slots then
-            return nil
+            return CacheAndReturnNil(itemLink)
         end
-    
+
         local className, classFile = UnitClass("player")
         local itemClassID, itemSubClassID = equipment.GetItemClassInfo(itemLink)
         if itemClassID == 2 and (itemSubClassID == 14 or itemSubClassID == 20) then
             -- Profession tools (mining picks, skinning knives) and fishing poles are not gear.
-            return nil
+            return CacheAndReturnNil(itemLink)
         end
-        local metadataItemID = items.GetItemMetadata(itemLink)
-        if next(items.GetItemStats(itemLink)) == nil
-            and not items.GetWeaponData(itemLink)
-            and not (metadataItemID and gearDuckDB.itemBonuses[metadataItemID]) then
+
+        local itemID, itemSetID = items.GetItemMetadata(itemLink)
+        local rawItemStats = items.GetItemStats(itemLink)
+        local weaponData = itemClassID == 2 and items.GetWeaponData(itemLink) or nil
+        if next(rawItemStats) == nil
+            and not weaponData
+            and not (itemID and gearDuckDB.itemBonuses[itemID]) then
             -- Decorative items such as tabards have nothing to compare.
-            return nil
+            return CacheAndReturnNil(itemLink)
         end
+
         local canEquip, equipRestrictionReason = equipment.CanPlayerEquipItem(itemLink)
         local unenchantedLink, enchantID = items.GetUnenchantedItemLink(itemLink)
         local isEnchantedWeapon = itemClassID == 2 and enchantID ~= nil
-        local itemID, itemSetID = items.GetItemMetadata(itemLink)
-        local equippedLinks = {}
-        local setCounts = sets.GetEquippedSetCounts()
-        local equippedHit = 0
-        for slot = 1, 19 do
-            local equippedLink = GetInventoryItemLink("player", slot)
-            equippedLinks[slot] = equippedLink
-            equippedHit = equippedHit + (hit.GetItemHitPercent(equippedLink) or 0)
-        end
+
+        local equippedState = GetEquippedState()
+        local setCounts = equippedState.setCounts
+        local equippedHit = equippedState.equippedHit
+        local itemHitPercent = hit.GetItemHitPercent(itemLink) or 0
+        local unenchantedHitPercent = isEnchantedWeapon and (hit.GetItemHitPercent(unenchantedLink) or 0) or itemHitPercent
+
         local comparisons = {}
         local hitCaps = {}
         local contextScores = {}
@@ -98,7 +182,7 @@ function evaluation.Create(database, weightDatabase)
                     context.key
                 )
                 local currentItemScore, currentBreakdown, currentItemStats =
-                    scoring.ScoreItem(gearDuckDB, itemLink, classWeights)
+                    scoring.ScoreItem(gearDuckDB, itemLink, classWeights, rawItemStats)
                 local currentItemScoreWithoutEnchant = currentItemScore
                 if isEnchantedWeapon then
                     currentItemScoreWithoutEnchant = scoring.ScoreItem(
@@ -107,48 +191,44 @@ function evaluation.Create(database, weightDatabase)
                         classWeights
                     )
                 end
+
+                local canClassDualWieldForHit = classFileForContext == "WARRIOR"
+                    or classFileForContext == "ROGUE"
+                    or (classFileForContext == "SHAMAN" and hit.GetTalentBonuses().dualWield)
                 local dualWielding = false
-                if (classFileForContext == "WARRIOR" or classFileForContext == "ROGUE"
-                    or (classFileForContext == "SHAMAN" and hit.GetTalentBonuses().dualWield))
-                    and equippedLinks[16] and equippedLinks[17] then
-                    local mainHandClassID = equipment.GetItemClassInfo(equippedLinks[16])
-                    local offHandClassID = equipment.GetItemClassInfo(equippedLinks[17])
-                    dualWielding = mainHandClassID == 2 and offHandClassID == 2
+                if canClassDualWieldForHit and not replacesBothWeaponSlots then
+                    local replacesOnlyOffHandWithNonWeapon = #slots == 1 and slots[1] == 17 and itemClassID ~= 2
+                    if not replacesOnlyOffHandWithNonWeapon then
+                        dualWielding = equippedState.mainHandIsWeapon and equippedState.offHandIsWeapon
+                    end
                 end
+
                 local hitCap = hit.GetEffectiveHitCap(
                     classFileForContext,
                     context.key,
                     activityProfile,
-                    dualWielding
+                    dualWielding,
+                    classWeights
                 )
                 hitCaps[context.key] = hitCap
-    
+
                 local contextEquipped = {}
                 local slotComparisons = {}
                 for _, slot in ipairs(slots) do
-                    local equippedLink = equippedLinks[slot]
-                    local score, breakdown, stats = scoring.ScoreItem(
-                        gearDuckDB,
-                        equippedLink,
-                        classWeights
-                    )
-                    local equippedItemID, equippedSetID = items.GetItemMetadata(equippedLink)
-                    local equippedItem = {
-                        slot = slot,
-                        link = equippedLink,
-                        itemID = equippedItemID,
-                        setID = equippedSetID,
-                        score = score,
-                        breakdown = breakdown,
-                        stats = stats,
-                        hitPercent = hit.GetItemHitPercent(equippedLink) or 0,
-                    }
+                    local equippedItem = GetEquippedSlotItem(equippedState, context.key, slot, classWeights)
                     contextEquipped[#contextEquipped + 1] = equippedItem
                     if not replacesBothWeaponSlots then
+                        local replacedItems = { equippedItem }
+                        local equippedScore = equippedItem.score
+                        if slot == 17 and equippedState.mainHandIsTwoHander then
+                            local mainHandItem = GetEquippedSlotItem(equippedState, context.key, 16, classWeights)
+                            replacedItems = { mainHandItem, equippedItem }
+                            equippedScore = mainHandItem.score + equippedItem.score
+                        end
                         slotComparisons[#slotComparisons + 1] = {
                             label = EQUIP_SLOT_LABELS[slot] or ("Slot " .. slot),
-                            equippedScore = score,
-                            replacedItems = { equippedItem },
+                            equippedScore = equippedScore,
+                            replacedItems = replacedItems,
                         }
                     end
                 end
@@ -163,7 +243,7 @@ function evaluation.Create(database, weightDatabase)
                         replacedItems = contextEquipped,
                     }
                 end
-    
+
                 if not itemScore then
                     className = classNameForContext or className
                     classFile = classFileForContext
@@ -180,7 +260,9 @@ function evaluation.Create(database, weightDatabase)
                     treeName = treeName,
                     treePoints = treePoints,
                 }
-    
+
+                local cappedCurrentEquippedHit = math.min(hitCap, math.max(0, equippedHit))
+                local hitWeight = classWeights.Hit or 0
                 for _, slotComparison in ipairs(slotComparisons) do
                     local comparison = {
                         profileKey = context.key,
@@ -200,26 +282,24 @@ function evaluation.Create(database, weightDatabase)
                     for _, replacedItem in ipairs(comparison.replacedItems) do
                         replacementHit = replacementHit + (replacedItem.hitPercent or 0)
                     end
-                    local itemHitPercent = hit.GetItemHitPercent(itemLink) or 0
                     local cappedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + itemHitPercent))
-                        - math.min(hitCap, math.max(0, equippedHit))
+                        - cappedCurrentEquippedHit
                     comparison.delta = currentItemScore - comparison.equippedScore
-                        + (cappedHitDelta - (itemHitPercent - replacementHit)) * (classWeights.Hit or 0)
+                        + (cappedHitDelta - (itemHitPercent - replacementHit)) * hitWeight
                         + setBonusDelta
                     if isEnchantedWeapon then
-                        local unenchantedHitPercent = hit.GetItemHitPercent(unenchantedLink) or 0
                         local cappedUnenchantedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + unenchantedHitPercent))
-                            - math.min(hitCap, math.max(0, equippedHit))
+                            - cappedCurrentEquippedHit
                         comparison.deltaWithoutEnchant = currentItemScoreWithoutEnchant - comparison.equippedScore
-                            + (cappedUnenchantedHitDelta - (unenchantedHitPercent - replacementHit)) * (classWeights.Hit or 0)
+                            + (cappedUnenchantedHitDelta - (unenchantedHitPercent - replacementHit)) * hitWeight
                             + setBonusDelta
                     end
                     comparisons[#comparisons + 1] = comparison
                 end
             end
         end
-    
-        local evaluation = {
+
+        local evaluationResult = {
             link = itemLink,
             canEquip = canEquip,
             equipRestrictionReason = equipRestrictionReason,
@@ -240,14 +320,21 @@ function evaluation.Create(database, weightDatabase)
             comparisons = comparisons,
         }
         local getItemInfo = (C_Item and rawget(C_Item, "GetItemInfo")) or rawget(_G, "GetItemInfo")
-        if getItemInfo and getItemInfo(itemLink) then
-            evaluationCache[itemLink] = evaluation
+        if equippedState.allEquippedLoaded and (not getItemInfo or getItemInfo(itemLink)) then
+            evaluationCache[itemLink] = evaluationResult
         end
-        return evaluation
+        return evaluationResult
     end
-    
+
     local function ClearCache()
         wipe(evaluationCache)
+        equippedStateCache = nil
+        if items.ClearCache then
+            items.ClearCache()
+        end
+        if hit.ClearItemCache then
+            hit.ClearItemCache()
+        end
     end
 
     local function SetDatabases(newDatabase, newWeightDatabase)

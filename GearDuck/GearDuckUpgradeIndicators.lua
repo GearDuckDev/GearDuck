@@ -6,8 +6,12 @@ addon.upgradeIndicators = upgradeIndicatorsModule
 function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEvaluationCache)
     local gearDuckDB = database
     local upgradeIndicators = setmetatable({}, { __mode = "k" })
+    local refreshedOwners = setmetatable({}, { __mode = "k" })
+    local hookedTargets = {}
+    local lastEquippedLinks = {}
     local ScheduleUpgradeIndicatorRefresh
     local RequestBaganatorRefresh
+    local baganatorRefreshRequested = false
 
     local function GetTooltipItemLink(tooltip, data)
         local itemLink = data and data.hyperlink
@@ -21,16 +25,37 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         return itemLink
     end
 
-    local function IsCharacterPaneFrame(frame)
+    local function IsInspectFrame(frame)
         while frame do
             local name = frame.GetName and frame:GetName()
             if name then
-                name = string.lower(name)
-                if string.find(name, "character", 1, true) or string.find(name, "paperdoll", 1, true) then
+                local lowered = string.lower(name)
+                if string.find(lowered, "inspect", 1, true) then
                     return true
                 end
             end
             frame = frame.GetParent and frame:GetParent()
+        end
+        return false
+    end
+
+    local function IsCharacterPaneFrame(frame)
+        if not frame or IsInspectFrame(frame) then
+            return false
+        end
+        local current = frame
+        while current do
+            local name = current.GetName and current:GetName()
+            if name then
+                local lowered = string.lower(name)
+                if string.find(lowered, "^characterbag%d+slot") or lowered == "keyringbutton" then
+                    return false
+                end
+                if string.find(lowered, "character", 1, true) or string.find(lowered, "paperdoll", 1, true) then
+                    return true
+                end
+            end
+            current = current.GetParent and current:GetParent()
         end
         return false
     end
@@ -88,7 +113,7 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             end
             return
         end
-        if IsCharacterPaneFrame(owner) then
+        if IsCharacterPaneFrame(owner) or IsInspectFrame(owner) then
             if indicator then
                 indicator:Hide()
             end
@@ -146,6 +171,43 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             slotID = tonumber(frameSlotID)
         end
         if frameName then
+            local bankSlotID = frameName:match("^BankFrameItem(%d+)$")
+            if bankSlotID then
+                bagID = -1
+                slotID = slotID or tonumber(bankSlotID)
+            end
+            local merchantIndex = frameName:match("^MerchantItem(%d+)ItemButton$")
+            if merchantIndex then
+                local merchantSlot = slotID or tonumber(merchantIndex)
+                local merchantFrame = rawget(_G, "MerchantFrame")
+                if merchantFrame and merchantFrame.selectedTab == 2 then
+                    local getBuybackItemLink = rawget(_G, "GetBuybackItemLink")
+                    if getBuybackItemLink and merchantSlot then
+                        link = getBuybackItemLink(merchantSlot)
+                    end
+                else
+                    local getMerchantItemLink = rawget(_G, "GetMerchantItemLink")
+                    if getMerchantItemLink and merchantSlot then
+                        link = getMerchantItemLink(merchantSlot)
+                    end
+                end
+                if type(link) == "string" and link:match("item:%d+") then
+                    return link
+                end
+                return nil
+            end
+            if frameName == "MerchantBuyBackItemItemButton" then
+                local getNumBuybackItems = rawget(_G, "GetNumBuybackItems")
+                local getBuybackItemLink = rawget(_G, "GetBuybackItemLink")
+                local numBuyback = getNumBuybackItems and tonumber(getNumBuybackItems()) or 0
+                if getBuybackItemLink and numBuyback > 0 then
+                    link = getBuybackItemLink(numBuyback)
+                    if type(link) == "string" and link:match("item:%d+") then
+                        return link
+                    end
+                end
+                return nil
+            end
             local containerIndex, namedSlotID = frameName:match("^ContainerFrame(%d+)Item(%d+)$")
             if containerIndex then
                 slotID = slotID or tonumber(namedSlotID)
@@ -181,6 +243,8 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
                 if not bagID then
                     bagID = tonumber(containerIndex) - 1
                 end
+            elseif parentName == "BankFrame" then
+                bagID = -1
             end
             if not slotID and frame.GetID then
                 local frameSlotID = frame:GetID()
@@ -188,7 +252,7 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             end
         end
         if bagID and slotID
-            and bagID >= 0 and bagID <= 4294967295 and bagID == math.floor(bagID)
+            and bagID >= -1 and bagID <= 4294967295 and bagID == math.floor(bagID)
             and slotID >= 1 and slotID <= 4294967295 and slotID == math.floor(slotID) then
             local container = C_Container or _G
             local getContainerItemLink = container.GetContainerItemLink
@@ -196,6 +260,19 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
                 link = getContainerItemLink(bagID, slotID)
                 if type(link) == "string" and link:match("item:%d+") then
                     return link
+                end
+            end
+            if bagID == -1 then
+                local bankButtonIDToInvSlotID = rawget(_G, "BankButtonIDToInvSlotID")
+                local getInventoryItemLink = rawget(_G, "GetInventoryItemLink")
+                if bankButtonIDToInvSlotID and getInventoryItemLink then
+                    local invSlot = bankButtonIDToInvSlotID(slotID)
+                    if invSlot then
+                        link = getInventoryItemLink("player", invSlot)
+                        if type(link) == "string" and link:match("item:%d+") then
+                            return link
+                        end
+                    end
                 end
             end
             return nil
@@ -259,16 +336,47 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         return nil
     end
 
+    local function IsParentFrameShown(globalName)
+        local parentFrame = rawget(_G, globalName)
+        if not parentFrame then
+            return true
+        end
+        return not parentFrame.IsShown or parentFrame:IsShown()
+    end
+
     local function RefreshUpgradeIndicators()
+        wipe(refreshedOwners)
+        local hasPendingItemInfo = false
+
         local function RefreshItemButton(button)
-            if not IsFrameAccessible(button) or (button.IsShown and not button:IsShown()) then
+            if not IsFrameAccessible(button) or refreshedOwners[button] then
+                return
+            end
+            refreshedOwners[button] = true
+            if button.IsShown and not button:IsShown() then
+                if upgradeIndicators[button] then
+                    upgradeIndicators[button]:Hide()
+                end
                 return
             end
             local itemLink = GetFrameItemLink(button)
             if itemLink then
+                if addon.items and addon.items.IsItemInfoLoaded and not addon.items.IsItemInfoLoaded(itemLink) then
+                    hasPendingItemInfo = true
+                end
                 UpdateUpgradeIndicator(button, evaluateItem(itemLink))
             elseif upgradeIndicators[button] then
                 upgradeIndicators[button]:Hide()
+            end
+        end
+
+        local function RefreshNamedButtons(prefix, first, last, suffix)
+            suffix = suffix or ""
+            for index = first, last do
+                local button = rawget(_G, prefix .. index .. suffix)
+                if button then
+                    RefreshItemButton(button)
+                end
             end
         end
 
@@ -295,39 +403,48 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             "QuestInfoRewardsFrame",
             "MapQuestInfoRewardsFrame",
         }) do
-            local rewardsFrame = rawget(_G, rewardsFrameName)
-            local rewardButtons = rewardsFrame and rewardsFrame.RewardButtons
-            if type(rewardButtons) == "table" then
-                for _, rewardButton in pairs(rewardButtons) do
-                    RefreshItemButton(rewardButton)
+            if IsParentFrameShown(rewardsFrameName) then
+                local rewardsFrame = rawget(_G, rewardsFrameName)
+                local rewardButtons = rewardsFrame and rewardsFrame.RewardButtons
+                if type(rewardButtons) == "table" then
+                    for _, rewardButton in pairs(rewardButtons) do
+                        RefreshItemButton(rewardButton)
+                    end
                 end
+                RefreshNamedButtons(rewardsFrameName .. "QuestInfoItem", 1, 30)
             end
         end
 
-        local explicitItemButtons = {}
-        local function AddNamedButtons(prefix, first, last)
-            for index = first, last do
-                local button = rawget(_G, prefix .. index)
-                if button then
-                    explicitItemButtons[button] = true
-                end
-            end
+        if IsParentFrameShown("OpenMailFrame") then
+            RefreshNamedButtons("OpenMailAttachmentButton", 1, 12)
         end
-        AddNamedButtons("OpenMailAttachmentButton", 1, 12)
-        AddNamedButtons("TradePlayerItem", 1, 6)
-        AddNamedButtons("TradeRecipientItem", 1, 6)
-        AddNamedButtons("QuestInfoRewardsFrameQuestInfoItem", 1, 30)
-        AddNamedButtons("MapQuestInfoRewardsFrameQuestInfoItem", 1, 30)
 
-        for button in pairs(explicitItemButtons) do
-            RefreshItemButton(button)
+        if IsParentFrameShown("TradeFrame") then
+            RefreshNamedButtons("TradePlayerItem", 1, 6)
+            RefreshNamedButtons("TradeRecipientItem", 1, 6)
+        end
+
+        if IsParentFrameShown("BankFrame") then
+            RefreshNamedButtons("BankFrameItem", 1, 28)
+        end
+
+        if IsParentFrameShown("MerchantFrame") then
+            RefreshNamedButtons("MerchantItem", 1, 12, "ItemButton")
+            local buybackButton = rawget(_G, "MerchantBuyBackItemItemButton")
+            if buybackButton then
+                RefreshItemButton(buybackButton)
+            end
         end
 
         for owner, indicator in pairs(upgradeIndicators) do
-            if IsFrameAccessible(owner) and (not owner.IsVisible or not owner:IsVisible()) then
+            if not IsFrameAccessible(owner) or (owner.IsVisible and not owner:IsVisible()) then
                 indicator:Hide()
+            elseif not refreshedOwners[owner] then
+                RefreshItemButton(owner)
             end
         end
+
+        return hasPendingItemInfo
     end
 
     local upgradeRefreshPending = false
@@ -340,10 +457,16 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         upgradeRefreshPending = true
         C_Timer.After(0.2, function()
             upgradeRefreshPending = false
-            RefreshUpgradeIndicators()
-            if upgradeRefreshRetries > 0 then
+            if baganatorRefreshRequested and RequestBaganatorRefresh then
+                baganatorRefreshRequested = false
+                RequestBaganatorRefresh()
+            end
+            local hasPendingItemInfo = RefreshUpgradeIndicators()
+            if hasPendingItemInfo and upgradeRefreshRetries > 0 then
                 upgradeRefreshRetries = upgradeRefreshRetries - 1
                 ScheduleUpgradeIndicatorRefresh(upgradeRefreshRetries)
+            else
+                upgradeRefreshRetries = 0
             end
         end)
     end
@@ -392,6 +515,25 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         RequestBaganatorRefresh()
     end
 
+    local function HookOnce(target, methodName, callback)
+        if not target or not methodName then
+            return
+        end
+        local key = tostring(target) .. ":" .. tostring(methodName)
+        if hookedTargets[key] then
+            return
+        end
+        if type(target) == "string" then
+            if type(rawget(_G, target)) == "function" then
+                hooksecurefunc(target, callback)
+                hookedTargets[key] = true
+            end
+        elseif type(target[methodName]) == "function" then
+            hooksecurefunc(target, methodName, callback)
+            hookedTargets[key] = true
+        end
+    end
+
     local function InstallUIRefreshHooks()
         if not hooksecurefunc then
             return
@@ -399,45 +541,52 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         local containerMixin = rawget(_G, "ContainerFrameMixin")
         if containerMixin then
             for _, methodName in ipairs({ "OnShow", "UpdateItems", "UpdateIfShown" }) do
-                if type(containerMixin[methodName]) == "function" then
-                    hooksecurefunc(containerMixin, methodName, function()
-                        ScheduleUpgradeIndicatorRefresh(3)
-                    end)
-                end
+                HookOnce(containerMixin, methodName, function()
+                    ScheduleUpgradeIndicatorRefresh(2)
+                end)
             end
         end
         local combinedBagsMixin = rawget(_G, "ContainerFrameCombinedBagsMixin")
         if combinedBagsMixin then
             for _, methodName in ipairs({ "OnShow", "UpdateItems", "UpdateIfShown" }) do
-                if type(combinedBagsMixin[methodName]) == "function" then
-                    hooksecurefunc(combinedBagsMixin, methodName, function()
-                        ScheduleUpgradeIndicatorRefresh(3)
+                HookOnce(combinedBagsMixin, methodName, function()
+                    ScheduleUpgradeIndicatorRefresh(2)
+                end)
+            end
+        else
+            local combinedBags = rawget(_G, "ContainerFrameCombinedBags")
+            if combinedBags then
+                if combinedBags.HookScript and not hookedTargets["ContainerFrameCombinedBags:OnShow"] then
+                    combinedBags:HookScript("OnShow", function()
+                        ScheduleUpgradeIndicatorRefresh(2)
                     end)
+                    hookedTargets["ContainerFrameCombinedBags:OnShow"] = true
                 end
-            end
-        end
-        local combinedBags = rawget(_G, "ContainerFrameCombinedBags")
-        if combinedBags then
-            if combinedBags.HookScript then
-                combinedBags:HookScript("OnShow", function()
-                    ScheduleUpgradeIndicatorRefresh(3)
-                end)
-            end
-            if type(combinedBags.UpdateItems) == "function" then
-                hooksecurefunc(combinedBags, "UpdateItems", function()
-                    ScheduleUpgradeIndicatorRefresh(3)
+                HookOnce(combinedBags, "UpdateItems", function()
+                    ScheduleUpgradeIndicatorRefresh(2)
                 end)
             end
         end
-        local questShowRewards = rawget(_G, "QuestInfo_ShowRewards")
-        if type(questShowRewards) == "function" then
-            hooksecurefunc("QuestInfo_ShowRewards", ScheduleUpgradeIndicatorRefresh)
-        end
-        local questGetRewardButton = rawget(_G, "QuestInfo_GetRewardButton")
-        if type(questGetRewardButton) == "function" then
-            hooksecurefunc("QuestInfo_GetRewardButton", ScheduleUpgradeIndicatorRefresh)
-        end
+        HookOnce("QuestInfo_ShowRewards", "QuestInfo_ShowRewards", ScheduleUpgradeIndicatorRefresh)
+        HookOnce("QuestInfo_GetRewardButton", "QuestInfo_GetRewardButton", ScheduleUpgradeIndicatorRefresh)
     end
+
+    local function HaveEquippedItemsChanged()
+        local changed = false
+        local getInventoryItemLink = rawget(_G, "GetInventoryItemLink")
+        if not getInventoryItemLink then
+            return true
+        end
+        for slot = 1, 19 do
+            local currentLink = getInventoryItemLink("player", slot) or false
+            if lastEquippedLinks[slot] ~= currentLink then
+                lastEquippedLinks[slot] = currentLink
+                changed = true
+            end
+        end
+        return changed
+    end
+
     InstallUIRefreshHooks()
     RegisterBaganatorUpgradeWidget()
     for _, event in ipairs({
@@ -452,6 +601,7 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         "BAG_UPDATE_DELAYED",
         "BANKFRAME_OPENED",
         "BANKFRAME_CLOSED",
+        "PLAYERBANKSLOTS_CHANGED",
         "MAIL_SHOW",
         "MAIL_INBOX_UPDATE",
         "MAIL_SEND_INFO_UPDATE",
@@ -480,17 +630,23 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             end
             return
         end
-        if event == "UNIT_INVENTORY_CHANGED" and unit ~= "player" then
+        if event == "UNIT_INVENTORY_CHANGED" then
+            if unit ~= "player" or not HaveEquippedItemsChanged() then
+                return
+            end
+            invalidateEvaluationCache()
             return
         end
         if event == "PLAYER_ENTERING_WORLD"
             or event == "PLAYER_EQUIPMENT_CHANGED"
-            or event == "UNIT_INVENTORY_CHANGED"
-            or event == "PLAYER_LEVEL_UP"
-            or event == "GET_ITEM_INFO_RECEIVED" then
+            or event == "PLAYER_LEVEL_UP" then
+            HaveEquippedItemsChanged()
             invalidateEvaluationCache()
+        elseif event == "GET_ITEM_INFO_RECEIVED" then
+            baganatorRefreshRequested = true
+            ScheduleUpgradeIndicatorRefresh(1)
         elseif event == "BAG_OPEN" or event == "BAG_UPDATE_DELAYED" then
-            ScheduleUpgradeIndicatorRefresh(3)
+            ScheduleUpgradeIndicatorRefresh(2)
         else
             ScheduleUpgradeIndicatorRefresh()
         end
@@ -505,9 +661,7 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             gearDuckDB = newDatabase
         end,
         RefreshAfterEvaluationInvalidated = function()
-            if RequestBaganatorRefresh then
-                RequestBaganatorRefresh()
-            end
+            baganatorRefreshRequested = true
             ScheduleUpgradeIndicatorRefresh()
         end,
     }

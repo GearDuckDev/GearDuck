@@ -373,6 +373,14 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
         end
 
         local function RefreshOptionsPanel()
+            local _, currentClassFile = UnitClass("player")
+            if CLASS_ACTIVITY_DEFAULTS[currentClassFile] and playerClassFile ~= currentClassFile then
+                local previousDefaultClass = CLASS_ACTIVITY_DEFAULTS[playerClassFile] and playerClassFile or "ROGUE"
+                if selectedClassFile == previousDefaultClass then
+                    selectedClassFile = currentClassFile
+                end
+                playerClassFile = currentClassFile
+            end
             local activeKey = talents.GetActiveTalentTree()
             selectedTreeKey = selectedClassFile == playerClassFile and activeKey or nil
             selectedActivityKey = gearDuckDB.hitCapContext
@@ -414,6 +422,9 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
     optionsPanel.SetGearDuckDatabases = function(database, weightDatabase)
         gearDuckDB = database
         gearDuckWeightsDB = weightDatabase
+        if optionsPanel.RefreshGearDuckOptions then
+            optionsPanel:RefreshGearDuckOptions()
+        end
     end
     return optionsPanel, optionsCategory
 end

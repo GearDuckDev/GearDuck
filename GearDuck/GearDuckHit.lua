@@ -10,11 +10,28 @@ local itemHitPercentCache = {}
 local hitTooltipScanner
 
 function hit.IsScannerTooltip(tooltip)
-    return tooltip == hitTooltipScanner
+    return tooltip ~= nil and tooltip == hitTooltipScanner
+end
+
+function hit.ClearItemCache()
+    wipe(itemHitPercentCache)
 end
 
 function hit.ResetTalentCache()
     hitTalentBonusesCache = nil
+end
+
+local function ParseHitLine(text)
+    if type(text) ~= "string" or text == "" then
+        return nil
+    end
+    local normalized = string.lower(text)
+    local amount = normalized:match("chance to hit.-by%s+([%d%.]+)%%")
+        or normalized:match("hit chance.-by%s+([%d%.]+)%%")
+        or normalized:match("^%+([%d%.]+)%%%s*hit")
+        or normalized:match("^%+([%d%.]+)%%%s*spell hit")
+        or normalized:match("^hit%s*%+([%d%.]+)%%")
+    return amount and tonumber(amount) or nil
 end
 
 function hit.GetItemHitPercent(itemLink)
@@ -25,34 +42,57 @@ function hit.GetItemHitPercent(itemLink)
         return itemHitPercentCache[itemLink] or nil
     end
 
-    if not hitTooltipScanner then
-        hitTooltipScanner = CreateFrame("GameTooltip", "GearDuckHitTooltipScanner", UIParent, "GameTooltipTemplate")
-        hitTooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
-    end
-    hitTooltipScanner:ClearLines()
-    hitTooltipScanner:SetHyperlink(itemLink)
-
-    local hitPercent
-    for lineIndex = 1, hitTooltipScanner:NumLines() do
-        local line = _G["GearDuckHitTooltipScannerTextLeft" .. lineIndex]
-        local text = line and line:GetText()
-        if text then
-            local normalized = string.lower(text)
-            local amount = normalized:match("chance to hit by%s+([%d%.]+)%%")
-                or normalized:match("hit chance by%s+([%d%.]+)%%")
-            if amount then
-                hitPercent = tonumber(amount)
-                break
+    local totalHit = 0
+    local scannedTooltip = false
+    local getHyperlink = C_TooltipInfo and rawget(C_TooltipInfo, "GetHyperlink")
+    if getHyperlink then
+        local tooltipData = getHyperlink(itemLink)
+        if tooltipData and type(tooltipData.lines) == "table" and #tooltipData.lines > 0 then
+            scannedTooltip = true
+            for _, line in ipairs(tooltipData.lines) do
+                local amount = ParseHitLine(line.leftText)
+                if amount then
+                    totalHit = totalHit + amount
+                end
             end
         end
     end
-    hitTooltipScanner:Hide()
-    if hitPercent then
-        itemHitPercentCache[itemLink] = hitPercent
-    else
+
+    if not scannedTooltip then
+        if not hitTooltipScanner then
+            hitTooltipScanner = CreateFrame("GameTooltip", "GearDuckHitTooltipScanner", UIParent, "GameTooltipTemplate")
+            hitTooltipScanner:SetOwner(UIParent, "ANCHOR_NONE")
+        end
+        hitTooltipScanner:ClearLines()
+        hitTooltipScanner:SetHyperlink(itemLink)
+
+        for lineIndex = 1, hitTooltipScanner:NumLines() do
+            local line = _G["GearDuckHitTooltipScannerTextLeft" .. lineIndex]
+            local text = line and line:GetText()
+            local amount = ParseHitLine(text)
+            if amount then
+                totalHit = totalHit + amount
+            end
+        end
+        hitTooltipScanner:Hide()
+    end
+
+    if totalHit <= 0 and addon.items and addon.items.GetItemStats then
+        local stats = addon.items.GetItemStats(itemLink)
+        for _, key in ipairs(data.STAT_KEYS.Hit) do
+            totalHit = totalHit + (tonumber(stats[key]) or 0)
+        end
+    end
+
+    if totalHit > 0 then
+        itemHitPercentCache[itemLink] = totalHit
+        return totalHit
+    end
+
+    if not addon.items or not addon.items.IsItemInfoLoaded or addon.items.IsItemInfoLoaded(itemLink) then
         itemHitPercentCache[itemLink] = false
     end
-    return hitPercent
+    return nil
 end
 
 function hit.GetTalentBonuses()
@@ -62,7 +102,7 @@ function hit.GetTalentBonuses()
 
     local _, classFile = UnitClass("player")
     local bonuses = { physical = 0, spell = 0, dualWield = false }
-    talents.ForEachActiveTalent(function(talentName, rank)
+    local scanned = talents.ForEachActiveTalent(function(talentName, rank)
         local normalizedName = string.lower(talentName or "")
         rank = tonumber(rank) or 0
         local classEffect = data.HIT_TALENT_EFFECTS[normalizedName]
@@ -77,11 +117,13 @@ function hit.GetTalentBonuses()
             bonuses.dualWield = true
         end
     end)
-    hitTalentBonusesCache = bonuses
+    if scanned then
+        hitTalentBonusesCache = bonuses
+    end
     return bonuses
 end
 
-function hit.GetEffectiveHitCap(classFile, contextKey, activityProfile, dualWielding)
+function hit.GetEffectiveHitCap(classFile, contextKey, activityProfile, dualWielding, weights)
     local caps = activityProfile.hitCaps
     local talentBonuses = hit.GetTalentBonuses()
     local hitTypes = data.CLASS_HIT_TYPES[classFile] or { physical = true }
@@ -90,6 +132,21 @@ function hit.GetEffectiveHitCap(classFile, contextKey, activityProfile, dualWiel
         physicalCap = math.max(0, math.max(caps.physical, 27) - talentBonuses.physical)
     end
     local spellCap = math.max(0, caps.spell - talentBonuses.spell)
+
+    if hitTypes.physical and hitTypes.spell and type(weights) == "table" then
+        local physicalWeight = (weights.Strength or 0)
+            + (weights.Agility or 0)
+            + (weights.AttackPower or 0)
+            + (weights.RangedAttackPower or 0)
+        local spellWeight = (weights.SpellPower or 0) + (weights.Healing or 0)
+        if physicalWeight > 0 or spellWeight > 0 then
+            if spellWeight > physicalWeight then
+                return spellCap
+            end
+            return physicalCap
+        end
+    end
+
     local effectiveCap = 0
     if hitTypes.physical then
         effectiveCap = math.max(effectiveCap, physicalCap)

@@ -34,9 +34,13 @@ local itemData = {
     },
 }
 
+local tooltipLinesByItemID = {}
+local itemStatsCalls = 0
+local inventoryLinkCalls = 0
+
 C_Item = {
     GetItemInfoInstant = function(itemLink)
-        local itemID = tonumber(itemLink:match("item:(%d+)"))
+        local itemID = tonumber(itemLink and itemLink:match("item:(%d+)"))
         local item = itemData[itemID]
         if not item then
             return nil
@@ -44,22 +48,35 @@ C_Item = {
         return itemID, nil, nil, item.equipLocation, nil, item.classID, item.subclassID
     end,
     GetItemInfo = function(itemLink)
-        local itemID = tonumber(itemLink:match("item:(%d+)"))
+        local itemID = tonumber(itemLink and itemLink:match("item:(%d+)"))
         local item = itemData[itemID]
-        if not item then
+        if not item or item.unloaded then
             return nil
         end
         return "Test item", itemLink, 1, 1, 1, nil, nil, nil, item.equipLocation,
             nil, nil, item.classID, item.subclassID, nil, nil, item.setID
     end,
     GetItemStats = function(itemLink)
-        local itemID = tonumber(itemLink:match("item:(%d+)"))
+        itemStatsCalls = itemStatsCalls + 1
+        local itemID = tonumber(itemLink and itemLink:match("item:(%d+)"))
         return itemData[itemID] and itemData[itemID].stats or {}
     end,
 }
 
+C_TooltipInfo = {
+    GetHyperlink = function(itemLink)
+        local itemID = tonumber(itemLink and itemLink:match("item:(%d+)"))
+        local lines = tooltipLinesByItemID[itemID]
+        if not lines then
+            return nil
+        end
+        return { lines = lines }
+    end,
+}
+
+local currentClassName, currentClassFile = "Warrior", "WARRIOR"
 function UnitClass()
-    return "Warrior", "WARRIOR"
+    return currentClassName, currentClassFile
 end
 
 function UnitRace()
@@ -70,8 +87,10 @@ function UnitLevel()
     return 60
 end
 
+local equippedBySlot = { [5] = "item:2" }
 function GetInventoryItemLink(_, slot)
-    return slot == 5 and "item:2" or nil
+    inventoryLinkCalls = inventoryLinkCalls + 1
+    return equippedBySlot[slot]
 end
 
 function CreateFrame()
@@ -218,14 +237,105 @@ equal(evaluateItem("item:1").comparisons[1].delta, 5, "evaluation cache stabilit
 clearCache()
 equal(evaluateItem("item:1").comparisons[1].delta, 10, "evaluation cache invalidation")
 
--- Tools and stat-less items are ignored
+-- Tools and stat-less items are ignored and cached negatively
 itemData[3] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 0, stats = {} }
 itemData[4] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 20, stats = { ITEM_MOD_STRENGTH_SHORT = 5 } }
 itemData[5] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 14, stats = {} }
 equal(evaluateItem("item:3"), nil, "stat-less item has no evaluation")
+local statsCallsAfterFirstStatless = itemStatsCalls
+equal(evaluateItem("item:3"), nil, "stat-less item negative cache hit")
+equal(itemStatsCalls, statsCallsAfterFirstStatless, "negative cache avoids re-fetching stats")
 equal(evaluateItem("item:4"), nil, "fishing pole has no evaluation")
 equal(evaluateItem("item:5"), nil, "mining pick has no evaluation")
 equal(evaluateItem("item:2") ~= nil, true, "item with stats still evaluated")
+
+-- Equipped state is cached across multiple candidate evaluations
+clearCache()
+inventoryLinkCalls = 0
+evaluateItem("item:1")
+local callsAfterFirstEval = inventoryLinkCalls
+evaluateItem("item:2")
+equal(inventoryLinkCalls, callsAfterFirstEval, "equipped inventory links are cached across evaluations")
+
+-- Candidate comparisons must not cache incomplete equipped-item data.
+local originalGetItemStats = C_Item.GetItemStats
+C_Item.GetItemStats = function(itemLink)
+    if itemLink == "item:2" and itemData[2].unloaded then
+        return {}
+    end
+    return originalGetItemStats(itemLink)
+end
+itemData[2].unloaded = true
+clearCache()
+equal(evaluateItem("item:1").comparisons[1].delta, 15, "comparison before equipped item loads")
+itemData[2].unloaded = false
+equal(evaluateItem("item:1").comparisons[1].delta, 10, "comparison updates after equipped item loads")
+C_Item.GetItemStats = originalGetItemStats
+
+-- Weapon damage + rightText speed parsing and statless white weapon evaluation
+itemData[6] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 7, stats = {} }
+tooltipLinesByItemID[6] = {
+    { leftText = "40 - 60 Damage", rightText = "Speed 2.50" },
+}
+questWeights.WeaponDPS = 2
+clearCache()
+local weaponData = addon.items.GetWeaponData("item:6")
+equal(weaponData ~= nil, true, "weapon data parsed when speed is in rightText")
+equal(weaponData.dps, 20, "weapon DPS calculated from min/max and rightText speed")
+equal(weaponData.speed, 2.5, "weapon speed parsed from rightText")
+local whiteWeaponEval = evaluateItem("item:6")
+equal(whiteWeaponEval ~= nil, true, "white weapon with no primary stats is still evaluated")
+
+-- Spell hit and multi-line hit parsing + unloaded item cache protection
+itemData[7] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 1, stats = {}, unloaded = true }
+equal(addon.hit.GetItemHitPercent("item:7"), nil, "unloaded item returns nil hit")
+itemData[7].unloaded = false
+tooltipLinesByItemID[7] = {
+    { leftText = "Equip: Improves your chance to hit with spells by 2%." },
+    { leftText = "+1% Hit" },
+}
+equal(addon.hit.GetItemHitPercent("item:7"), 3, "spell hit and enchant hit are parsed after item loads")
+
+-- Dual-wield slot filtering and off-hand weapon eligibility
+itemData[8] = { equipLocation = "INVTYPE_WEAPON", classID = 2, subclassID = 15, stats = { ITEM_MOD_INTELLECT_SHORT = 10 } }
+itemData[9] = { equipLocation = "INVTYPE_WEAPONOFFHAND", classID = 2, subclassID = 15, stats = { ITEM_MOD_INTELLECT_SHORT = 10 } }
+currentClassName, currentClassFile = "Mage", "MAGE"
+equal(addon.equipment.CanPlayerDualWield(), false, "mage cannot dual-wield")
+local mageSlots = addon.items.GetReplacementSlots("item:8")
+equal(#mageSlots, 1, "non-dual-wielder compares 1H weapon against main hand only")
+equal(mageSlots[1], 16, "non-dual-wielder 1H weapon slot is main hand")
+local mageCanEquipOffhandWeapon = addon.equipment.CanPlayerEquipItem("item:9")
+equal(mageCanEquipOffhandWeapon, false, "non-dual-wielder cannot equip off-hand weapon")
+currentClassName, currentClassFile = "Warrior", "WARRIOR"
+equal(addon.equipment.CanPlayerDualWield(), true, "warrior at level 60 can dual-wield")
+local warriorSlots = addon.items.GetReplacementSlots("item:8")
+equal(#warriorSlots, 2, "dual-wielder compares 1H weapon against both hands")
+
+-- 2H equipped in main hand vs off-hand item comparison
+itemData[10] = { equipLocation = "INVTYPE_2HWEAPON", classID = 2, subclassID = 8, stats = { ITEM_MOD_STRENGTH_SHORT = 50 } }
+itemData[11] = { equipLocation = "INVTYPE_SHIELD", classID = 4, subclassID = 6, stats = { ITEM_MOD_STRENGTH_SHORT = 10 } }
+equippedBySlot[16] = "item:10"
+equippedBySlot[17] = nil
+questWeights.WeaponDPS = 0
+questWeights.WeaponSkill = 0
+clearCache()
+local shieldEval = evaluateItem("item:11")
+equal(shieldEval.comparisons[1].delta, -40, "off-hand shield accounts for unequipping 2H weapon in main hand")
+equippedBySlot[16] = nil
+
+-- Rogue Precision maxRanks and hybrid effective hit cap
+equal(addon.data.HIT_TALENT_EFFECTS.precision.ROGUE.maxRanks, 5, "rogue precision supports 5 ranks")
+local paladinRaidProfile = addon.data.CLASS_ACTIVITY_DEFAULTS.PALADIN.RAID
+equal(
+    addon.hit.GetEffectiveHitCap("PALADIN", "RAID", paladinRaidProfile, false, { Strength = 2, AttackPower = 1, SpellPower = 0.4 }),
+    9,
+    "physical hybrid build uses physical raid hit cap"
+)
+equal(
+    addon.hit.GetEffectiveHitCap("PALADIN", "RAID", paladinRaidProfile, false, { Strength = 0.6, SpellPower = 1.2, Healing = 1.4 }),
+    16,
+    "caster hybrid build uses spell raid hit cap"
+)
 
 -- Per-character databases and onboarding
 local rootDatabase = addon.profiles.NormalizeDatabase({ itemBonuses = { [7] = 3 } })
@@ -268,5 +378,99 @@ equal(dbB.showUpgradeArrows, true, "skip uses default arrows")
 local dbC, weightsC = addon.profiles.GetCharacterDatabases(rootDatabase, rootWeights, "C-Realm")
 addon.onboarding.SetWeightMode(dbC, weightsC, "custom")
 equal(addon.onboarding.Finish(dbC, weightsC), true, "custom weights request options pane")
+
+-- Upgrade-indicator refreshes resolve bank/merchant items and coalesce events.
+local originalCreateFrame = CreateFrame
+local refreshFrame
+CreateFrame = function()
+    refreshFrame = {
+        RegisterEvent = function() end,
+        SetScript = function(self, _, callback) self.onEvent = callback end,
+    }
+    return refreshFrame
+end
+local pendingTimers = {}
+C_Timer = {
+    After = function(_, callback)
+        pendingTimers[#pendingTimers + 1] = callback
+    end,
+}
+local function RunRefresh()
+    equal(#pendingTimers, 1, "refresh requests coalesced into one timer")
+    local callback = table.remove(pendingTimers, 1)
+    callback()
+end
+local function NamedButton(name)
+    return { GetName = function() return name end }
+end
+BankFrameItem1 = NamedButton("BankFrameItem1")
+MerchantItem1ItemButton = NamedButton("MerchantItem1ItemButton")
+MerchantBuyBackItemItemButton = NamedButton("MerchantBuyBackItemItemButton")
+MerchantFrame = { selectedTab = 1 }
+C_Container = {
+    GetContainerItemLink = function(bagID, slotID)
+        equal(bagID, -1, "bank item uses bank container")
+        equal(slotID, 1, "bank item uses button slot")
+        return "item:1"
+    end,
+}
+GetMerchantItemLink = function(slot)
+    equal(slot, 1, "merchant item uses button slot")
+    return "item:2"
+end
+GetBuybackItemLink = function(slot) return "item:" .. (slot + 10) end
+GetNumBuybackItems = function() return 2 end
+itemData[12] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 4, stats = {} }
+local refreshedLinks = {}
+local invalidations = 0
+local integration = addon.upgradeIndicators.Initialize(
+    { showUpgradeArrows = false },
+    function(link) refreshedLinks[#refreshedLinks + 1] = link end,
+    function() invalidations = invalidations + 1 end
+)
+integration.ScheduleRefresh(2)
+integration.ScheduleRefresh(2)
+RunRefresh()
+equal(refreshedLinks[1], "item:1", "bank item refreshed without hovering")
+equal(refreshedLinks[2], "item:2", "merchant item refreshed without hovering")
+equal(refreshedLinks[3], "item:12", "latest buyback item refreshed")
+equal(#pendingTimers, 0, "loaded items do not trigger redundant retries")
+MerchantFrame.selectedTab = 2
+refreshedLinks = {}
+integration.ScheduleRefresh()
+RunRefresh()
+equal(refreshedLinks[2], "item:11", "merchant buyback tab resolves buyback links")
+
+refreshFrame.onEvent(refreshFrame, "UNIT_INVENTORY_CHANGED", "player")
+equal(invalidations, 1, "first inventory event invalidates evaluations")
+refreshFrame.onEvent(refreshFrame, "UNIT_INVENTORY_CHANGED", "player")
+refreshFrame.onEvent(refreshFrame, "UNIT_INVENTORY_CHANGED", "target")
+equal(invalidations, 1, "unchanged or non-player inventory does not invalidate evaluations")
+equippedBySlot[16] = "item:10"
+refreshFrame.onEvent(refreshFrame, "UNIT_INVENTORY_CHANGED", "player")
+equal(invalidations, 2, "changed equipped link invalidates evaluations")
+equippedBySlot[16] = nil
+
+itemData[1].unloaded = true
+integration.ScheduleRefresh(1)
+RunRefresh()
+equal(#pendingTimers, 1, "unloaded visible items trigger a retry")
+itemData[1].unloaded = false
+RunRefresh()
+equal(#pendingTimers, 0, "retry stops after item info loads")
+
+equal(integration.IsCharacterPaneFrame(NamedButton("CharacterHeadSlot")), true, "character equipment excluded")
+equal(integration.IsCharacterPaneFrame(NamedButton("CharacterBag0Slot")), false, "bag slots not treated as character equipment")
+equal(integration.IsCharacterPaneFrame(NamedButton("InspectHeadSlot")), false, "inspect frame not treated as player equipment")
+CreateFrame = originalCreateFrame
+C_Timer = nil
+C_Container = nil
+BankFrameItem1 = nil
+MerchantFrame = nil
+MerchantItem1ItemButton = nil
+MerchantBuyBackItemItemButton = nil
+GetMerchantItemLink = nil
+GetBuybackItemLink = nil
+GetNumBuybackItems = nil
 
 print(string.format("GearDuck Lua tests passed (%d assertions).", passed))

@@ -247,7 +247,12 @@ SlashCmdList.GEARDUCK = function(message)
         if value and value >= 0 and value <= 100 then
             local _, classFile = UnitClass("player")
             local contextKey = gearDuckDB.hitCapContext
-            local hitCaps = gearDuckWeightsDB.profiles[classFile][contextKey].hitCaps
+            local activityProfile = profiles.GetActivityWeightProfile(gearDuckWeightsDB, classFile, contextKey)
+            if not activityProfile then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Could not resolve the active hit-cap profile.")
+                return
+            end
+            local hitCaps = activityProfile.hitCaps
             if hitCapType then
                 hitCaps[hitCapType] = value
             else
@@ -256,6 +261,9 @@ SlashCmdList.GEARDUCK = function(message)
             end
             DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff33ccffGearDuck:|r %s %s hit cap set to %s%%.", SCORING_CONTEXTS[contextKey], hitCapType or "physical and spell", value))
             InvalidateEvaluationCache()
+            if optionsPanel and optionsPanel:IsShown() and optionsPanel.RefreshGearDuckOptions then
+                optionsPanel:RefreshGearDuckOptions()
+            end
             RefreshLastEvaluation()
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Hit cap must be between 0 and 100 percent.")
