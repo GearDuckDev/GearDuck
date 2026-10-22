@@ -547,8 +547,6 @@ equal(#pendingTimers, 0, "retry stops after item info loads")
 equal(integration.IsCharacterPaneFrame(NamedButton("CharacterHeadSlot")), true, "character equipment excluded")
 equal(integration.IsCharacterPaneFrame(NamedButton("CharacterBag0Slot")), false, "bag slots not treated as character equipment")
 equal(integration.IsCharacterPaneFrame(NamedButton("InspectHeadSlot")), false, "inspect frame not treated as player equipment")
-CreateFrame = originalCreateFrame
-C_Timer = nil
 C_Container = nil
 BankFrameItem1 = nil
 MerchantFrame = nil
@@ -557,5 +555,72 @@ MerchantBuyBackItemItemButton = nil
 GetMerchantItemLink = nil
 GetBuybackItemLink = nil
 GetNumBuybackItems = nil
+
+-- Loot-roll icons refresh without hovering and resolve the current roll after gear changes.
+local rollShown = true
+local rollLinks = { [42] = "item:1", [43] = "item:2" }
+GroupLootFrame1 = {
+    rollID = 42,
+    IsShown = function() return rollShown end,
+}
+GroupLootFrame1.IconFrame = {
+    Icon = itemButton.Icon,
+    CreateTexture = function() return arrow end,
+    GetParent = function() return GroupLootFrame1 end,
+}
+GetLootRollItemLink = function(rollID) return rollLinks[rollID] end
+local rollIntegration
+rollIntegration = addon.upgradeIndicators.Initialize(
+    { showUpgradeArrows = true },
+    evaluateItem,
+    function()
+        clearCache()
+        rollIntegration.RefreshAfterEvaluationInvalidated()
+    end
+)
+clearCache()
+arrowVisible = false
+refreshFrame.onEvent(refreshFrame, "START_LOOT_ROLL", 42)
+RunRefresh()
+equal(arrowVisible, true, "loot-roll upgrade arrow appears without hovering")
+equippedBySlot[16] = "item:10"
+refreshFrame.onEvent(refreshFrame, "PLAYER_EQUIPMENT_CHANGED", 16)
+RunRefresh()
+equal(arrowVisible, true, "loot-roll arrow survives an unrelated equipment change")
+equippedBySlot[5] = "item:1"
+refreshFrame.onEvent(refreshFrame, "PLAYER_EQUIPMENT_CHANGED", 5)
+RunRefresh()
+equal(arrowVisible, false, "loot-roll arrow disappears when item is no longer an upgrade")
+equippedBySlot[5] = "item:2"
+refreshFrame.onEvent(refreshFrame, "PLAYER_EQUIPMENT_CHANGED", 5)
+RunRefresh()
+equal(arrowVisible, true, "loot-roll arrow returns when item becomes an upgrade again")
+GroupLootFrame1.rollID = 43
+refreshFrame.onEvent(refreshFrame, "START_LOOT_ROLL", 43)
+RunRefresh()
+equal(arrowVisible, false, "reused loot-roll icon evaluates the new roll")
+GroupLootFrame1.rollID = 42
+itemData[1].unloaded = true
+refreshFrame.onEvent(refreshFrame, "START_LOOT_ROLL", 42)
+RunRefresh()
+equal(#pendingTimers, 1, "loot-roll item loading schedules a bounded retry")
+itemData[1].unloaded = false
+RunRefresh()
+equal(arrowVisible, true, "loot-roll arrow refreshes after item loads")
+rollShown = false
+refreshFrame.onEvent(refreshFrame, "CANCEL_LOOT_ROLL", 42)
+RunRefresh()
+equal(arrowVisible, false, "hidden loot-roll window clears its arrow")
+rollShown = true
+rollLinks[42] = nil
+rollIntegration.UpdateUpgradeIndicator(GroupLootFrame1.IconFrame, allowedEvaluation)
+refreshFrame.onEvent(refreshFrame, "CANCEL_LOOT_ROLL", 42)
+RunRefresh()
+equal(arrowVisible, false, "expired loot roll clears an existing arrow")
+equippedBySlot[16] = nil
+GroupLootFrame1 = nil
+GetLootRollItemLink = nil
+CreateFrame = originalCreateFrame
+C_Timer = nil
 
 print(string.format("GearDuck Lua tests passed (%d assertions).", passed))

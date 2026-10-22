@@ -39,6 +39,7 @@ Reopen the in-game guide at any time with `/gd setup`.
 - Labels comparisons as upgrades, sidegrades, or downgrades.
 - Includes weapon DPS and weapon speed in scoring when the item tooltip exposes damage and speed values, including speed displayed on the right side of a damage line and weapons without primary stats.
 - Shows a small up arrow on visible item icons when an item is equippable and is an upgrade in at least one selected profile. Arrows are enabled by default and can be toggled in the options panel. Character and inspect equipment panes are excluded. Baganator category-view bags use its corner-widget API, while Blizzard individual and combined bags use the default UI's item-button enumerators and bounded refreshes after opening/updating. Other supported item panels refresh on bank, mail, quest, trade, and merchant updates, including buyback items. Item evaluations and equipped state are cached and recalculated when equipment, level, talents, or weights change; comparisons using unloaded equipped items are not cached.
+- Loot-roll windows show upgrade arrows without hovering, and refresh them when equipped gear changes.
 - Shows separate Power Level comparisons for an enchanted weapon with and without its enchant.
 - Shows Questing comparisons by default, with options to show any combination of Questing, Raid, and PvP comparisons in that order. Each activity has its own class/tree starter weights and configurable hit caps.
 - Supports manual Power Level values for proc/use effects and set-bonus thresholds.

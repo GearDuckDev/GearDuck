@@ -154,6 +154,13 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
     end
 
     local function GetFrameItemLink(frame)
+        local parent = frame.GetParent and frame:GetParent()
+        local rollID = frame.rollID or (parent and parent.rollID)
+        if rollID then
+            local getLootRollItemLink = rawget(_G, "GetLootRollItemLink")
+            return getLootRollItemLink and getLootRollItemLink(rollID) or nil
+        end
+
         local link = frame.itemLink or frame.itemHyperlink or frame.hyperlink or frame.link or frame.item
         if type(link) == "string" and link:match("item:%d+") then
             return link
@@ -436,6 +443,20 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             end
         end
 
+        local numLootFrames = tonumber(rawget(_G, "NUM_GROUP_LOOT_FRAMES")) or 4
+        for index = 1, numLootFrames do
+            local rollFrame = rawget(_G, "GroupLootFrame" .. index)
+            if IsFrameAccessible(rollFrame) then
+                local iconFrame = rollFrame.IconFrame or rollFrame.iconFrame or rollFrame
+                if rollFrame.IsShown and not rollFrame:IsShown() then
+                    refreshedOwners[iconFrame] = true
+                    UpdateUpgradeIndicator(iconFrame, nil)
+                else
+                    RefreshItemButton(iconFrame)
+                end
+            end
+        end
+
         for owner, indicator in pairs(upgradeIndicators) do
             if not IsFrameAccessible(owner) or (owner.IsVisible and not owner:IsVisible()) then
                 indicator:Hide()
@@ -569,6 +590,15 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         end
         HookOnce("QuestInfo_ShowRewards", "QuestInfo_ShowRewards", ScheduleUpgradeIndicatorRefresh)
         HookOnce("QuestInfo_GetRewardButton", "QuestInfo_GetRewardButton", ScheduleUpgradeIndicatorRefresh)
+        for _, functionName in ipairs({
+            "GroupLootFrame_OpenNewFrame",
+            "GroupLootFrame_OnShow",
+            "GroupLootContainer_AddFrame",
+        }) do
+            HookOnce(functionName, functionName, function()
+                ScheduleUpgradeIndicatorRefresh(2)
+            end)
+        end
     end
 
     local function HaveEquippedItemsChanged()
@@ -617,12 +647,14 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         "MERCHANT_SHOW",
         "MERCHANT_UPDATE",
         "MERCHANT_CLOSED",
+        "START_LOOT_ROLL",
+        "CANCEL_LOOT_ROLL",
     }) do
         itemRefreshFrame:RegisterEvent(event)
     end
     itemRefreshFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "ADDON_LOADED" then
-            if unit == "Blizzard_UIPanels_Game" then
+            if unit == "Blizzard_UIPanels_Game" or unit == "Blizzard_GroupLoot" then
                 InstallUIRefreshHooks()
                 ScheduleUpgradeIndicatorRefresh()
             elseif unit == "Baganator" then
@@ -645,7 +677,7 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         elseif event == "GET_ITEM_INFO_RECEIVED" then
             baganatorRefreshRequested = true
             ScheduleUpgradeIndicatorRefresh(1)
-        elseif event == "BAG_OPEN" or event == "BAG_UPDATE_DELAYED" then
+        elseif event == "BAG_OPEN" or event == "BAG_UPDATE_DELAYED" or event == "START_LOOT_ROLL" then
             ScheduleUpgradeIndicatorRefresh(2)
         else
             ScheduleUpgradeIndicatorRefresh()
