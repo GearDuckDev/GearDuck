@@ -54,6 +54,18 @@ run `/reload`.
 
 ## Screenshots
 
-See [`docs/SCREENSHOTS.md`](docs/SCREENSHOTS.md) for the capture checklist.
-Only genuine in-game captures should be used in the addon gallery. The media
-package currently contains no screenshots.
+### Spot upgrades in your bags
+
+![Item tooltip showing a Questing upgrade and a green bag upgrade arrow](docs/screenshots/01-tooltip-upgrade.png)
+
+### Compare multiple activities
+
+![Item tooltip showing separate Questing and Raid upgrade comparisons](docs/screenshots/02-tooltip-profiles.png)
+
+### Customize weights and display preferences
+
+![GearDuck settings showing profile choices, upgrade arrows, hit caps, and editable stat weights](docs/screenshots/03-options-weights.png)
+
+### Get started in game
+
+![GearDuck setup guide welcome page](docs/screenshots/04-setup-guide.png)

@@ -23,4 +23,4 @@ GearDuck Weights companion addon. Install both addon folders side by side in
 `Interface/AddOns`.
 
 See `CURSEFORGE.md` for the full feature description and
-`docs/SCREENSHOTS.md` for recommended release images.
+`docs/SCREENSHOTS.md` for the four prepared release images and upload captions.
