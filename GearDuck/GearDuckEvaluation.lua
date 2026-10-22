@@ -320,7 +320,7 @@ function evaluation.Create(database, weightDatabase)
             comparisons = comparisons,
         }
         local getItemInfo = (C_Item and rawget(C_Item, "GetItemInfo")) or rawget(_G, "GetItemInfo")
-        if equippedState.allEquippedLoaded and (not getItemInfo or getItemInfo(itemLink)) then
+        if canEquip ~= nil and equippedState.allEquippedLoaded and (not getItemInfo or getItemInfo(itemLink)) then
             evaluationCache[itemLink] = evaluationResult
         end
         return evaluationResult

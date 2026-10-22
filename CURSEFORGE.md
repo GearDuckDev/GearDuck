@@ -26,7 +26,8 @@ Built for **WoW: Forever Beta 1.60.1** (`Interface: 16001`) by **GearDuckDev**.
   against both equipped weapon slots together.
 - **Eligibility checks:** explicit Classic rules include level-20 polearm
   training, level-40 armor unlocks, and the Shaman two-handed weapon talent.
-  Items you cannot equip show `Cannot Use`.
+  Item-specific class restrictions are also checked, such as Shaman-only gear.
+  Items you cannot equip show `Cannot Use` and never receive upgrade arrows.
 - **Weapon calculations:** accounts for supported racial weapon skills,
   weapon-specific talent effects, weapon DPS and speed, and separate weapon
   comparisons with and without enchants.

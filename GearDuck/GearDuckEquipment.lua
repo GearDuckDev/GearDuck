@@ -112,6 +112,43 @@ function equipment.GetItemClassInfo(itemLink)
     return classID, subClassID, equipLocation
 end
 
+local function CheckItemClassRestriction(itemLink, className, classFile)
+    local getHyperlink = C_TooltipInfo and rawget(C_TooltipInfo, "GetHyperlink")
+    if not getHyperlink then
+        return true, nil
+    end
+
+    local tooltipData = getHyperlink(itemLink)
+    if not tooltipData or type(tooltipData.lines) ~= "table" or #tooltipData.lines == 0 then
+        return nil, "Item class restrictions are not loaded yet"
+    end
+
+    local classFormat = rawget(_G, "ITEM_CLASSES_ALLOWED") or "Classes: %s"
+    local classPattern = "^" .. classFormat:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+        :gsub("%%%%s", "(.+)") .. "$"
+    local maleClasses = rawget(_G, "LOCALIZED_CLASS_NAMES_MALE")
+    local femaleClasses = rawget(_G, "LOCALIZED_CLASS_NAMES_FEMALE")
+    for _, line in ipairs(tooltipData.lines) do
+        local text = line.leftText
+        if type(text) == "string" then
+            text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+            local allowedClasses = text:match(classPattern)
+            if allowedClasses then
+                for allowedClass in allowedClasses:gmatch("[^,]+") do
+                    allowedClass = allowedClass:match("^%s*(.-)%s*$")
+                    if allowedClass == className
+                        or (maleClasses and allowedClass == maleClasses[classFile])
+                        or (femaleClasses and allowedClass == femaleClasses[classFile]) then
+                        return true, nil
+                    end
+                end
+                return false, text
+            end
+        end
+    end
+    return true, nil
+end
+
 function equipment.CanPlayerEquipItem(itemLink)
     if not itemLink then
         return nil, nil
@@ -173,5 +210,5 @@ function equipment.CanPlayerEquipItem(itemLink)
         end
     end
 
-    return true, nil
+    return CheckItemClassRestriction(itemLink, className, classFile)
 end

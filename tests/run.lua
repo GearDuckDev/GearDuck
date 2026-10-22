@@ -67,10 +67,10 @@ C_TooltipInfo = {
     GetHyperlink = function(itemLink)
         local itemID = tonumber(itemLink and itemLink:match("item:(%d+)"))
         local lines = tooltipLinesByItemID[itemID]
-        if not lines then
+        if not lines and (not itemData[itemID] or itemData[itemID].unloaded) then
             return nil
         end
-        return { lines = lines }
+        return { lines = lines or { { leftText = "Test item" } } }
     end,
 }
 
@@ -311,6 +311,73 @@ equal(addon.equipment.CanPlayerDualWield(), true, "warrior at level 60 can dual-
 local warriorSlots = addon.items.GetReplacementSlots("item:8")
 equal(#warriorSlots, 2, "dual-wielder compares 1H weapon against both hands")
 
+-- Item-specific class restrictions apply even when the armor type is usable.
+itemData[13] = {
+    equipLocation = "INVTYPE_CHEST",
+    classID = 4,
+    subclassID = 2,
+    stats = { ITEM_MOD_AGILITY_SHORT = 100 },
+}
+currentClassName, currentClassFile = "Rogue", "ROGUE"
+tooltipLinesByItemID[13] = { { leftText = "Classes: Shaman" } }
+local canEquipRestricted, restrictionReason = addon.equipment.CanPlayerEquipItem("item:13")
+equal(canEquipRestricted, false, "rogue cannot equip shaman-only leather")
+equal(restrictionReason, "Classes: Shaman", "class restriction explains allowed classes")
+clearCache()
+local restrictedEvaluation = evaluateItem("item:13")
+equal(restrictedEvaluation.canEquip, false, "shared evaluation rejects restricted gear")
+equal(restrictedEvaluation.equipRestrictionReason, "Classes: Shaman", "tooltip evaluation retains restriction")
+equal(restrictedEvaluation.comparisons[1].delta > 0.05, true, "restricted test item would otherwise be an upgrade")
+currentClassName, currentClassFile = "Shaman", "SHAMAN"
+equal(addon.equipment.CanPlayerEquipItem("item:13"), true, "shaman can equip shaman-only leather")
+currentClassName, currentClassFile = "Rogue", "ROGUE"
+tooltipLinesByItemID[13] = { { leftText = "Classes: Shaman, |cfffff468Rogue|r, Druid" } }
+equal(addon.equipment.CanPlayerEquipItem("item:13"), true, "colored multi-class list includes rogue")
+clearCache()
+local allowedEvaluation = evaluateItem("item:13")
+tooltipLinesByItemID[13] = { { leftText = "Classes: Rogue Apprentice" } }
+equal(addon.equipment.CanPlayerEquipItem("item:13"), false, "class names require an exact match")
+tooltipLinesByItemID[13] = {
+    { leftText = "Test item" },
+    { leftText = "Requires Level 60", leftColor = { r = 1, g = 0, b = 0 } },
+}
+equal(addon.equipment.CanPlayerEquipItem("item:13"), true, "unrelated red text is not a class restriction")
+ITEM_CLASSES_ALLOWED = "Allowed classes (%s)"
+LOCALIZED_CLASS_NAMES_MALE = { ROGUE = "Localized Rogue" }
+LOCALIZED_CLASS_NAMES_FEMALE = { ROGUE = "Localized Rogue Female" }
+tooltipLinesByItemID[13] = { { leftText = "Allowed classes (Shaman, Localized Rogue)" } }
+equal(addon.equipment.CanPlayerEquipItem("item:13"), true, "localized format and male class name")
+tooltipLinesByItemID[13] = { { leftText = "Allowed classes (Localized Rogue Female)" } }
+equal(addon.equipment.CanPlayerEquipItem("item:13"), true, "localized female class name")
+tooltipLinesByItemID[13] = { { leftText = "Allowed classes (Shaman)" } }
+equal(addon.equipment.CanPlayerEquipItem("item:13"), false, "localized class restriction rejects rogue")
+ITEM_CLASSES_ALLOWED = nil
+LOCALIZED_CLASS_NAMES_MALE = nil
+LOCALIZED_CLASS_NAMES_FEMALE = nil
+
+local originalGetHyperlink = C_TooltipInfo.GetHyperlink
+C_TooltipInfo.GetHyperlink = function(itemLink)
+    if itemLink == "item:13" then
+        return nil
+    end
+    return originalGetHyperlink(itemLink)
+end
+clearCache()
+equal(evaluateItem("item:13").canEquip, nil, "missing tooltip keeps class eligibility pending")
+C_TooltipInfo.GetHyperlink = function(itemLink)
+    if itemLink == "item:13" then
+        return { lines = {} }
+    end
+    return originalGetHyperlink(itemLink)
+end
+equal(evaluateItem("item:13").canEquip, nil, "empty tooltip keeps class eligibility pending")
+C_TooltipInfo.GetHyperlink = originalGetHyperlink
+tooltipLinesByItemID[13] = { { leftText = "Classes: Shaman" } }
+equal(evaluateItem("item:13").canEquip, false, "pending class eligibility is not cached")
+tooltipLinesByItemID[13] = nil
+currentClassName, currentClassFile = "Warrior", "WARRIOR"
+clearCache()
+
 -- 2H equipped in main hand vs off-hand item comparison
 itemData[10] = { equipLocation = "INVTYPE_2HWEAPON", classID = 2, subclassID = 8, stats = { ITEM_MOD_STRENGTH_SHORT = 50 } }
 itemData[11] = { equipLocation = "INVTYPE_SHIELD", classID = 4, subclassID = 6, stats = { ITEM_MOD_STRENGTH_SHORT = 10 } }
@@ -428,6 +495,24 @@ local integration = addon.upgradeIndicators.Initialize(
     function(link) refreshedLinks[#refreshedLinks + 1] = link end,
     function() invalidations = invalidations + 1 end
 )
+local arrowVisible = false
+local arrow = {
+    SetTexture = function() end,
+    SetSize = function() end,
+    SetPoint = function() end,
+    Show = function() arrowVisible = true end,
+    Hide = function() arrowVisible = false end,
+}
+local itemButton = {
+    Icon = { GetObjectType = function() return "Texture" end },
+    CreateTexture = function() return arrow end,
+}
+integration.SetDatabase({ showUpgradeArrows = true })
+integration.UpdateUpgradeIndicator(itemButton, allowedEvaluation)
+equal(arrowVisible, true, "allowed class receives an upgrade arrow")
+integration.UpdateUpgradeIndicator(itemButton, restrictedEvaluation)
+equal(arrowVisible, false, "class-restricted gear hides an existing upgrade arrow")
+integration.SetDatabase({ showUpgradeArrows = false })
 integration.ScheduleRefresh(2)
 integration.ScheduleRefresh(2)
 RunRefresh()
