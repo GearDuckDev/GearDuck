@@ -14,7 +14,7 @@ GearDuck adds Power Level comparisons to item tooltips and marks eligible bag up
 
 ### Tune your weights
 
-Choose which profiles appear in tooltips, toggle upgrade arrows, and edit class/activity weights and hit caps.
+Choose which profiles appear in tooltips, toggle upgrade arrows and choose their position, and edit class/activity weights and hit caps.
 
 ![GearDuck settings showing profile choices, upgrade arrows, hit caps, and editable stat weights](docs/screenshots/03-options-weights.png)
 
@@ -31,6 +31,7 @@ Reopen the in-game guide at any time with `/gd setup`.
 
 ## Features
 
+- Choose the upgrade arrow's position in `/gd options`: top right (default), top left, bottom right, bottom left, or a center overlay. The choice is saved per character and applies to Baganator arrows too.
 - Detects your current class and selects its weight profile automatically. Profiles are provided for the nine original WoW Classic classes.
 - Detects your active talent tree automatically and selects broad starter weights for that class/tree combination. Each tree's editable weights are independent within Questing, Raid, and PvP profiles. Talent data is cached and refreshed on talent/group changes.
 - Factors supported racial weapon skill and weapon-specific talent effects into matching weapon subclasses.

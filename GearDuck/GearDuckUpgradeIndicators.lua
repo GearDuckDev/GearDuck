@@ -6,6 +6,7 @@ addon.upgradeIndicators = upgradeIndicatorsModule
 function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEvaluationCache)
     local gearDuckDB = database
     local upgradeIndicators = setmetatable({}, { __mode = "k" })
+    local baganatorIconRegions = setmetatable({}, { __mode = "k" })
     local refreshedOwners = setmetatable({}, { __mode = "k" })
     local hookedTargets = {}
     local lastEquippedLinks = {}
@@ -101,6 +102,12 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         return not isForbidden or not isForbidden(frame)
     end
 
+    local function PositionUpgradeIndicator(indicator, iconRegion)
+        local position = addon.profiles.GetUpgradeArrowPosition(gearDuckDB)
+        indicator:ClearAllPoints()
+        indicator:SetPoint(position.key, iconRegion, position.key, position.x, position.y)
+    end
+
     local function UpdateUpgradeIndicator(owner, evaluation)
         if not IsFrameAccessible(owner) or owner == UIParent then
             return
@@ -147,9 +154,9 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
             indicator = owner:CreateTexture(nil, "OVERLAY")
             indicator:SetTexture("Interface\\AddOns\\GearDuck\\Textures\\arrow.tga")
             indicator:SetSize(14, 14)
-            indicator:SetPoint("TOPRIGHT", iconRegion, "TOPRIGHT", -1, -1)
             upgradeIndicators[owner] = indicator
         end
+        PositionUpgradeIndicator(indicator, iconRegion)
         indicator:Show()
     end
 
@@ -504,7 +511,9 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
         api.RegisterCornerWidget(
             "GearDuck upgrade",
             "gearduck_upgrade",
-            function(_, details)
+            function(arrow, details)
+                -- Baganator lays out corner widgets before this update.
+                PositionUpgradeIndicator(arrow, baganatorIconRegions[arrow])
                 if not gearDuckDB.showUpgradeArrows then
                     return false
                 end
@@ -522,6 +531,7 @@ function upgradeIndicatorsModule.Initialize(database, evaluateItem, invalidateEv
                 local arrow = itemButton:CreateTexture(nil, "OVERLAY")
                 arrow:SetTexture("Interface\\AddOns\\GearDuck\\Textures\\arrow.tga")
                 arrow:SetSize(14, 14)
+                baganatorIconRegions[arrow] = GetItemIconRegion(itemButton) or itemButton
                 return arrow
             end,
             { corner = "top_right", priority = 4 },

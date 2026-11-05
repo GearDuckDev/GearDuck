@@ -1,17 +1,14 @@
-# GearDuck 0.6.7-release
+# GearDuck 0.6.8-release
 
-GearDuck 0.6.7-release helps you compare gear in WoW: Forever using a
+GearDuck 0.6.8-release helps you compare gear in WoW: Forever using a
 customizable Power Level score.
 
-## Bug fixes
+## New features
 
-- Fixed loot-roll upgrade arrows requiring a mouseover and disappearing after
-  equipment changes. Roll icons now refresh automatically against current gear.
-- Fixed item-specific class restrictions being ignored. Gear restricted to
-  another class now shows `Cannot Use` and does not receive an upgrade arrow,
-  even when its armor or weapon type is otherwise usable.
-- Prevented incomplete class-eligibility checks from being cached while item
-  tooltip data is still loading.
+- Choose where upgrade arrows appear: top right (default), top left, bottom
+  right, bottom left, or a center overlay.
+- Change the arrow position in `/gd options`. Your choice is saved per character
+  and updates existing arrows, including Baganator widgets, without reloading.
 
 ## Highlights
 

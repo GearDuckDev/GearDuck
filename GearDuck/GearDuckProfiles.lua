@@ -67,6 +67,15 @@ local function EnsureContextSettings(database)
     end
 end
 
+function profiles.GetUpgradeArrowPosition(database)
+    for _, position in ipairs(data.UPGRADE_ARROW_POSITIONS) do
+        if position.key == database.upgradeArrowPosition then
+            return position
+        end
+    end
+    return data.UPGRADE_ARROW_POSITIONS[1]
+end
+
 local function EnsureUpgradeArrowSetting(database)
     if database.upgradeArrowDefaultApplied ~= true then
         database.showUpgradeArrows = true
@@ -74,6 +83,7 @@ local function EnsureUpgradeArrowSetting(database)
     elseif type(database.showUpgradeArrows) ~= "boolean" then
         database.showUpgradeArrows = true
     end
+    database.upgradeArrowPosition = profiles.GetUpgradeArrowPosition(database).key
 end
 
 local SHARED_DATABASE_KEYS = { itemBonuses = true, enchantBonuses = true, setBonuses = true }

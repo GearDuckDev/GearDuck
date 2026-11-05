@@ -139,6 +139,15 @@ GearDuckDB = {
 GearDuckWeightsDB = {}
 
 local database = addon.profiles.NormalizeDatabase(GearDuckDB)
+equal(database.upgradeArrowPosition, "TOPRIGHT", "existing saves default to top-right arrows")
+for _, position in ipairs({ "TOPRIGHT", "TOPLEFT", "BOTTOMRIGHT", "BOTTOMLEFT", "CENTER" }) do
+    local saved = addon.profiles.NormalizeDatabase({ upgradeArrowPosition = position })
+    equal(saved.upgradeArrowPosition, position, position .. " survives normalization")
+end
+for _, invalid in ipairs({ "INVALID", false, 42, {} }) do
+    local saved = addon.profiles.NormalizeDatabase({ upgradeArrowPosition = invalid })
+    equal(saved.upgradeArrowPosition, "TOPRIGHT", "invalid arrow position defaults to top right")
+end
 local weightDatabase = addon.profiles.EnsureActivityWeightProfiles(database)
 equal(weightDatabase.profiles.WARRIOR.QUEST.weights.Strength, 3, "legacy weight migration")
 equal(weightDatabase.profiles.WARRIOR.QUEST.hitCaps.physical, 12, "legacy hit-cap migration")
@@ -409,6 +418,14 @@ local rootDatabase = addon.profiles.NormalizeDatabase({ itemBonuses = { [7] = 3 
 local rootWeights = {}
 local dbA, weightsA = addon.profiles.GetCharacterDatabases(rootDatabase, rootWeights, "A-Realm")
 local dbB, weightsB = addon.profiles.GetCharacterDatabases(rootDatabase, rootWeights, "B-Realm")
+equal(dbA.upgradeArrowPosition, "TOPRIGHT", "new character defaults to top-right arrows")
+dbA.upgradeArrowPosition = "CENTER"
+equal(dbB.upgradeArrowPosition, "TOPRIGHT", "arrow position is per character")
+equal(
+    addon.profiles.GetCharacterDatabases(rootDatabase, rootWeights, "A-Realm").upgradeArrowPosition,
+    "CENTER",
+    "arrow position persists when character databases are reopened"
+)
 equal(dbA.itemBonuses, rootDatabase.itemBonuses, "shared item bonuses")
 equal(rawget(dbA, "itemBonuses"), nil, "item bonuses not duplicated per character")
 equal(addon.onboarding.IsComplete(dbA), false, "new character needs onboarding")
@@ -492,24 +509,49 @@ local refreshedLinks = {}
 local invalidations = 0
 local integration = addon.upgradeIndicators.Initialize(
     { showUpgradeArrows = false },
-    function(link) refreshedLinks[#refreshedLinks + 1] = link end,
+    function(link)
+        refreshedLinks[#refreshedLinks + 1] = link
+        return allowedEvaluation
+    end,
     function() invalidations = invalidations + 1 end
 )
 local arrowVisible = false
+local arrowPoint
+local arrowClears = 0
+local arrowCreations = 0
 local arrow = {
     SetTexture = function() end,
     SetSize = function() end,
-    SetPoint = function() end,
+    ClearAllPoints = function() arrowClears = arrowClears + 1; arrowPoint = nil end,
+    SetPoint = function(_, ...) arrowPoint = { ... } end,
     Show = function() arrowVisible = true end,
     Hide = function() arrowVisible = false end,
 }
 local itemButton = {
     Icon = { GetObjectType = function() return "Texture" end },
-    CreateTexture = function() return arrow end,
+    CreateTexture = function() arrowCreations = arrowCreations + 1; return arrow end,
 }
 integration.SetDatabase({ showUpgradeArrows = true })
 integration.UpdateUpgradeIndicator(itemButton, allowedEvaluation)
 equal(arrowVisible, true, "allowed class receives an upgrade arrow")
+equal(arrowPoint[1], "TOPRIGHT", "unconfigured arrows use top right")
+for _, position in ipairs({
+    { "TOPLEFT", 1, -1 },
+    { "BOTTOMRIGHT", -1, 1 },
+    { "BOTTOMLEFT", 1, 1 },
+    { "CENTER", 0, 0 },
+    { "TOPRIGHT", -1, -1 },
+}) do
+    integration.SetDatabase({ showUpgradeArrows = true, upgradeArrowPosition = position[1] })
+    integration.UpdateUpgradeIndicator(itemButton, allowedEvaluation)
+    equal(arrowPoint[1], position[1], "arrow anchor follows selected position")
+    equal(arrowPoint[2], itemButton.Icon, "arrow anchors to the item icon")
+    equal(arrowPoint[3], position[1], "relative anchor follows selected position")
+    equal(arrowPoint[4], position[2], "arrow horizontal inset")
+    equal(arrowPoint[5], position[3], "arrow vertical inset")
+end
+equal(arrowCreations, 1, "position changes reuse the existing arrow")
+equal(arrowClears, 6, "position changes clear previous anchors")
 integration.UpdateUpgradeIndicator(itemButton, restrictedEvaluation)
 equal(arrowVisible, false, "class-restricted gear hides an existing upgrade arrow")
 integration.SetDatabase({ showUpgradeArrows = false })
@@ -555,6 +597,13 @@ MerchantBuyBackItemItemButton = nil
 GetMerchantItemLink = nil
 GetBuybackItemLink = nil
 GetNumBuybackItems = nil
+
+itemButton.itemLink = "item:1"
+integration.SetDatabase({ showUpgradeArrows = true, upgradeArrowPosition = "CENTER" })
+integration.RefreshAfterEvaluationInvalidated()
+RunRefresh()
+equal(arrowPoint[1], "CENTER", "settings refresh moves an existing arrow without hovering")
+itemButton.itemLink = nil
 
 -- Loot-roll icons refresh without hovering and resolve the current roll after gear changes.
 local rollShown = true
@@ -620,7 +669,117 @@ equal(arrowVisible, false, "expired loot roll clears an existing arrow")
 equippedBySlot[16] = nil
 GroupLootFrame1 = nil
 GetLootRollItemLink = nil
+
+-- Baganator may anchor its corner widget before asking GearDuck to update it.
+local baganatorUpdate, baganatorInit
+local baganatorArrow
+local baganatorRefreshes = 0
+local baganatorDB = { showUpgradeArrows = true }
+Baganator = {
+    API = {
+        RegisterCornerWidget = function(_, id, onUpdate, onInit, defaultPosition)
+            equal(id, "gearduck_upgrade", "existing Baganator widget identity retained")
+            equal(defaultPosition.corner, "top_right", "Baganator default corner retained")
+            baganatorUpdate, baganatorInit = onUpdate, onInit
+        end,
+        RequestItemButtonsRefresh = function()
+            baganatorRefreshes = baganatorRefreshes + 1
+            if baganatorArrow then
+                arrow:SetPoint("TOPRIGHT", itemButton, "TOPRIGHT", -2, -2)
+                baganatorUpdate(arrow, { itemLink = "item:1" })
+            end
+        end,
+    },
+}
+local baganatorIntegration = addon.upgradeIndicators.Initialize(
+    baganatorDB,
+    function() return allowedEvaluation end,
+    function() end
+)
+baganatorArrow = baganatorInit(itemButton)
+for _, position in ipairs({ "TOPRIGHT", "TOPLEFT", "BOTTOMRIGHT", "BOTTOMLEFT", "CENTER" }) do
+    baganatorDB.upgradeArrowPosition = position
+    baganatorIntegration.RefreshAfterEvaluationInvalidated()
+    RunRefresh()
+    equal(arrowPoint[1], position, "Baganator arrow follows the selected position on refresh")
+    equal(arrowPoint[2], itemButton.Icon, "Baganator arrow anchors to the icon, not its widget container")
+    equal(baganatorUpdate(baganatorArrow, { itemLink = "item:1" }), true, "Baganator upgrade still visible")
+end
+equal(baganatorRefreshes, 6, "position changes request Baganator item-button refreshes")
+baganatorDB.showUpgradeArrows = false
+equal(baganatorUpdate(baganatorArrow, { itemLink = "item:1" }), false, "disabled Baganator arrows stay hidden")
+Baganator = nil
+
 CreateFrame = originalCreateFrame
 C_Timer = nil
+
+-- Exercise the options dropdown and character switching with lightweight UI doubles.
+local framesByName = {}
+local function NewOptionsWidget()
+    local widget = {}
+    for _, method in ipairs({
+        "SetPoint", "SetSize", "SetWidth", "SetAutoFocus", "SetTextInsets",
+        "SetCursorPosition", "SetScrollChild", "HookScript",
+    }) do
+        widget[method] = function() end
+    end
+    widget.SetText = function(self, text) self.text = text end
+    widget.SetChecked = function(self, checked) self.checked = checked end
+    widget.SetScript = function(self, script, callback) self[script] = callback end
+    widget.CreateFontString = NewOptionsWidget
+    return widget
+end
+CreateFrame = function(_, name)
+    local widget = NewOptionsWidget()
+    if name then
+        framesByName[name] = widget
+    end
+    return widget
+end
+UIDropDownMenu_SetWidth = function() end
+UIDropDownMenu_Initialize = function(widget, callback) widget.initialize = callback end
+UIDropDownMenu_SetSelectedValue = function(widget, value) widget.selectedValue = value end
+UIDropDownMenu_SetText = function(widget, text) widget.text = text end
+UIDropDownMenu_CreateInfo = function() return {} end
+local menuEntries
+UIDropDownMenu_AddButton = function(info) menuEntries[#menuEntries + 1] = info end
+local optionInvalidations = 0
+local panel = addon.options.Create(dbB, weightsB, function()
+    optionInvalidations = optionInvalidations + 1
+end)
+local positionDropdown = framesByName.GearDuckArrowPositionDropdown
+equal(positionDropdown.selectedValue, "TOPRIGHT", "options initially select top right")
+equal(positionDropdown.text, "Top right", "options initially display the default label")
+menuEntries = {}
+positionDropdown.initialize(positionDropdown, 1)
+equal(#menuEntries, 5, "options offer exactly five arrow positions")
+for index, expected in ipairs({
+    { "TOPRIGHT", "Top right" },
+    { "TOPLEFT", "Top left" },
+    { "BOTTOMRIGHT", "Bottom right" },
+    { "BOTTOMLEFT", "Bottom left" },
+    { "CENTER", "Center" },
+}) do
+    local entry = menuEntries[index]
+    equal(entry.value, expected[1], "position menu value")
+    equal(entry.text, expected[2], "position menu label")
+    equal(entry.checked, index == 1, "position menu marks the current selection")
+    entry.func()
+    equal(dbB.upgradeArrowPosition, expected[1], "dropdown saves selected position")
+    equal(positionDropdown.selectedValue, expected[1], "dropdown updates selected value immediately")
+    equal(positionDropdown.text, expected[2], "dropdown updates label immediately")
+end
+equal(optionInvalidations, 5, "each position selection triggers a refresh")
+dbA.upgradeArrowPosition = "BOTTOMLEFT"
+panel.SetGearDuckDatabases(dbA, weightsA)
+equal(positionDropdown.selectedValue, "BOTTOMLEFT", "character switch refreshes the position dropdown")
+equal(positionDropdown.text, "Bottom left", "character switch refreshes the position label")
+CreateFrame = originalCreateFrame
+UIDropDownMenu_SetWidth = nil
+UIDropDownMenu_Initialize = nil
+UIDropDownMenu_SetSelectedValue = nil
+UIDropDownMenu_SetText = nil
+UIDropDownMenu_CreateInfo = nil
+UIDropDownMenu_AddButton = nil
 
 print(string.format("GearDuck Lua tests passed (%d assertions).", passed))

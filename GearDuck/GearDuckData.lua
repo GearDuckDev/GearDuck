@@ -1,6 +1,14 @@
 local _, addon = ...
 
 addon.data = {
+    UPGRADE_ARROW_POSITIONS = {
+        { key = "TOPRIGHT", name = "Top right", x = -1, y = -1 },
+        { key = "TOPLEFT", name = "Top left", x = 1, y = -1 },
+        { key = "BOTTOMRIGHT", name = "Bottom right", x = -1, y = 1 },
+        { key = "BOTTOMLEFT", name = "Bottom left", x = 1, y = 1 },
+        { key = "CENTER", name = "Center", x = 0, y = 0 },
+    },
+
     STAT_ORDER = {
         "Strength", "Agility", "Stamina", "Intellect", "Spirit", "Hit", "Crit",
         "AttackPower", "RangedAttackPower", "SpellPower", "Healing", "ManaRegen",

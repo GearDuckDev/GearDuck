@@ -43,6 +43,32 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
             invalidateEvaluationCache()
         end)
 
+        local arrowPositionLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        arrowPositionLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 355, -114)
+        arrowPositionLabel:SetText("Arrow position:")
+
+        local arrowPositionDropdown = CreateFrame("Frame", "GearDuckArrowPositionDropdown", panel, "UIDropDownMenuTemplate")
+        arrowPositionDropdown:SetPoint("TOPLEFT", panel, "TOPLEFT", 440, -104)
+        UIDropDownMenu_SetWidth(arrowPositionDropdown, 130)
+        UIDropDownMenu_Initialize(arrowPositionDropdown, function(self, level)
+            for _, position in ipairs(data.UPGRADE_ARROW_POSITIONS) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = position.name
+                info.value = position.key
+                info.checked = gearDuckDB.upgradeArrowPosition == position.key
+                info.func = function()
+                    gearDuckDB.upgradeArrowPosition = position.key
+                    UIDropDownMenu_SetSelectedValue(arrowPositionDropdown, position.key)
+                    UIDropDownMenu_SetText(arrowPositionDropdown, position.name)
+                    invalidateEvaluationCache()
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+        end)
+        local arrowPosition = profiles.GetUpgradeArrowPosition(gearDuckDB)
+        UIDropDownMenu_SetSelectedValue(arrowPositionDropdown, arrowPosition.key)
+        UIDropDownMenu_SetText(arrowPositionDropdown, arrowPosition.name)
+
         local _, playerClassFile = UnitClass("player")
         local selectedClassFile = CLASS_ACTIVITY_DEFAULTS[playerClassFile] and playerClassFile or "ROGUE"
         local activeTreeKey = talents.GetActiveTalentTree()
@@ -392,6 +418,9 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
                 profileCheckboxes[context.key]:SetChecked(gearDuckDB.displayContexts[context.key])
             end
             upgradeArrowsCheckbox:SetChecked(gearDuckDB.showUpgradeArrows)
+            local arrowPosition = profiles.GetUpgradeArrowPosition(gearDuckDB)
+            UIDropDownMenu_SetSelectedValue(arrowPositionDropdown, arrowPosition.key)
+            UIDropDownMenu_SetText(arrowPositionDropdown, arrowPosition.name)
             UIDropDownMenu_SetSelectedValue(activityDropdown, selectedActivityKey)
             UIDropDownMenu_SetText(activityDropdown, SCORING_CONTEXTS[selectedActivityKey] or "Unknown")
             UIDropDownMenu_SetSelectedValue(dropdown, selectedClassFile)

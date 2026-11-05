@@ -15,7 +15,8 @@ Built for **WoW: Forever Beta 1.60.1** (`Interface: 16001`) by **GearDuckDev**.
 
 - **At-a-glance upgrades:** optional up arrows mark equippable upgrades on
   supported bag, quest reward, mail, and vendor item icons. Supports default
-  Blizzard bags and Baganator.
+  Blizzard bags and Baganator. Choose any corner or a center overlay in settings;
+  arrows default to the top right.
 - **Class, tree, and activity weights:** automatically selects starter weights
   for your class and active talent tree. Questing, Raid, and PvP each have
   editable weights and hit caps.
