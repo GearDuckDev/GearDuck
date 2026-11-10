@@ -7,7 +7,7 @@ compares it with your equipped gear, helping you spot an **Upgrade**,
 **Sidegrade**, or **Downgrade** at a glance. It automatically detects your class
 and active talent tree, then uses independent Questing, Raid, and PvP profiles.
 
-Version **1.0.0-release**, built for **WoW: Forever Beta 1.60.1**
+Version **1.1.0-release**, built for **WoW: Forever Beta 1.60.1**
 (`Interface: 16001`) by **GearDuckDev**.
 
 ***
@@ -33,6 +33,9 @@ Version **1.0.0-release**, built for **WoW: Forever Beta 1.60.1**
 - **Weapon calculations:** accounts for supported racial weapon skills,
   weapon-specific talent effects, weapon DPS and speed, and separate weapon
   comparisons with and without enchants.
+- **Set-aware upgrades:** scores supported stat bonuses only when equipping an
+  item activates a set threshold or replacing it breaks one. Uses each
+  profile's weights and respects Hit caps.
 - **First-time setup:** a per-character guide introduces Power Level and asks
   about stat weights, tooltip profiles, and upgrade arrows. Reopen it with
   `/gd setup`.
@@ -70,9 +73,17 @@ or use effects. Assign a manual Power Level value when needed:
   Level. Clear it with `/gd itembonus clear`.
 - **Enchant procs:** hover an enchanted weapon and use `/gd enchantbonus 12`
   to assign a proc-only value.
-- **Set bonuses:** hover a set item and use `/gd debug` to inspect its set
-  information. `/gd setbonus 2 15` assigns 15 Power Level at the two-piece
-  threshold for that set.
+- **Set bonuses:** supported unconditional stats are read automatically from
+  item tooltips. `/gd setbonus 2 15` overrides the entire two-piece bonus with
+  15 Power Level; `/gd setbonus 2 clear` restores automatic scoring.
+  Unsupported effects are flagged for manual valuation; use `/gd debug` to
+  identify them.
+
+Active green `Set: ...` lines hide their piece counts. GearDuck learns these
+thresholds from numbered gray lines and remembers them across reloads. If a
+set is already active when first encountered, briefly unequip enough pieces
+to make its bonuses gray, hover a set item, then re-equip. Until learned,
+incomplete set data is flagged rather than silently ignored.
 
 ***
 

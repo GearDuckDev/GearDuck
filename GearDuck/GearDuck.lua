@@ -135,6 +135,12 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
                 tooltip:AddLine(presentation.FormatPowerLevelLine(comparison.profileName, comparison.label, comparison.delta))
             end
         end
+        if evaluation.hasUnscoredSetBonus then
+            tooltip:AddLine("|cffffff00Some set effects need a manual value; see /gd debug.|r")
+        end
+        if evaluation.setBonusDataPending then
+            tooltip:AddLine("|cffffff00Set bonus data incomplete; see /gd debug to learn hidden thresholds.|r")
+        end
         tooltip:Show()
     end
 end)
@@ -334,7 +340,7 @@ SlashCmdList.GEARDUCK = function(message)
         if setBonusValue == "clear" then
             bonuses[threshold] = nil
             gearDuckDB.setBonuses[setID] = bonuses
-            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff33ccffGearDuck:|r Cleared set %d's %d-piece bonus.", setID, threshold))
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff33ccffGearDuck:|r Cleared set %d's %d-piece override; supported stats are scored automatically.", setID, threshold))
         else
             local value = tonumber(setBonusValue)
             if not value or math.abs(value) > 100000 then

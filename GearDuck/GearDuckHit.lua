@@ -25,6 +25,10 @@ local function ParseHitLine(text)
     if type(text) ~= "string" or text == "" then
         return nil
     end
+    local _, setBonusText = addon.items.GetSetBonusLine(text)
+    if setBonusText then
+        return nil
+    end
     local normalized = string.lower(text)
     local amount = normalized:match("chance to hit.-by%s+([%d%.]+)%%")
         or normalized:match("hit chance.-by%s+([%d%.]+)%%")

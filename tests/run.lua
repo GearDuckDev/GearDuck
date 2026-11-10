@@ -34,7 +34,9 @@ local itemData = {
     },
 }
 
-local tooltipLinesByItemID = {}
+local tooltipLinesByItemID = {
+    [1] = { { leftText = "(2) Set: +5 Strength" } },
+}
 local itemStatsCalls = 0
 local inventoryLinkCalls = 0
 
@@ -220,6 +222,21 @@ equal(oldTreeProfile.Hit, 1.3, "migrated custom weights are preserved on later l
 database.itemBonuses[1] = 2
 local score = addon.scoring.ScoreItem(database, "item:1", { Strength = 1 })
 equal(score, 12, "weighted stats plus manual item bonus")
+
+itemData[20] = {
+    stats = {
+        ITEM_MOD_STAMINA_SHORT = 3,
+        ITEM_MOD_SPIRIT_SHORT = -3,
+    },
+}
+local negativeStatScore, negativeStatBreakdown = addon.scoring.ScoreItem(
+    database,
+    "item:20",
+    { Stamina = 1, Spirit = 2 }
+)
+equal(negativeStatScore, -3, "negative item stats reduce the weighted score")
+equal(negativeStatBreakdown.Spirit.amount, -3, "negative item stat amount is preserved")
+equal(negativeStatBreakdown.Spirit.contribution, -6, "negative item stat contribution is preserved")
 
 database.setBonuses[99] = { [2] = 20 }
 equal(
@@ -781,5 +798,411 @@ UIDropDownMenu_SetSelectedValue = nil
 UIDropDownMenu_SetText = nil
 UIDropDownMenu_CreateInfo = nil
 UIDropDownMenu_AddButton = nil
+
+do
+    local setDB = addon.profiles.NormalizeDatabase({})
+    local definitions = {
+        { "(2) Set: +5 Agility", "Agility", 5 },
+        { "(2) Set: -3 Spirit", "Spirit", -3 },
+        { "(2) Set: +10 Strength", "Strength", 10 },
+        { "(2) Set: +10 Stamina", "Stamina", 10 },
+        { "(2) Set: +10 Intellect.", "Intellect", 10 },
+        { "(2) Set: 20 Armor", "Armor", 20 },
+        { "(2) Set: Increases armor by 20.", "Armor", 20 },
+        { "(2) Set: Increases attack power by 10.", "AttackPower", 10 },
+        { "(2) Set: Increases ranged attack power by 10.", "RangedAttackPower", 10 },
+        { "(2) Set: Increases damage and healing done by magical spells and effects by up to 10.", "SpellPower", 10 },
+        { "(2) Set: Increases healing done by spells and effects by up to 10.", "Healing", 10 },
+        { "(2) Set: Restores 3 mana per 5 sec.", "ManaRegen", 3 },
+        { "(2) Set: Increased Defense +5.", "Defense", 5 },
+        { "(2) Set: Improves your chance to hit by 1%.", "Hit", 1 },
+        { "(2) Set: Improves your chance to get a critical strike by 1%.", "Crit", 1 },
+        { "(2) Set: Increases your chance to dodge an attack by 1%.", "Dodge", 1 },
+        { "(2) Set: Increases your chance to parry an attack by 1%.", "Parry", 1 },
+    }
+    itemData[100] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 2,
+        setID = 77, stats = { ITEM_MOD_AGILITY_SHORT = 1 } }
+    for _, definition in ipairs(definitions) do
+        tooltipLinesByItemID[100] = { { leftText = definition[1] } }
+        local bonuses, loaded = addon.sets.GetItemSetBonuses("item:100")
+        equal(loaded, true, "set tooltip is available")
+        equal(bonuses[2].stats[definition[2]], definition[3], "supported set stat parsed: " .. definition[2])
+    end
+    tooltipLinesByItemID[100] = {
+        { leftText = "|cff808080(2) Set: +5 Agility|r" },
+        { leftText = "(2) Set: +10 Stamina" },
+        { leftText = "(3) Set: Increases attack power by 10 for 5 sec after a critical strike." },
+        { leftText = "(4) Set: Increases damage done by Nature spells and effects by up to 7." },
+        { leftText = "(5) Set: Increased Staves +2." },
+        { leftText = "Equip: +100 Agility" },
+    }
+    local parsed = addon.sets.GetItemSetBonuses("item:100")
+    equal(parsed[2].stats.Agility, 5, "color-coded inactive bonus is detected")
+    equal(parsed[2].stats.Stamina, 10, "multiple lines at one threshold are combined")
+    equal(parsed[3].stats, nil, "conditional bonuses are not guessed")
+    equal(parsed[4].stats, nil, "school-specific damage is not treated as generic spell power")
+    equal(parsed[5].stats, nil, "weapon-specific skill is not treated as generic stats")
+    local localizedSetFormat = rawget(_G, "ITEM_SET_BONUS")
+    local localizedAgility = rawget(_G, "SPELL_STAT2_NAME")
+    ITEM_SET_BONUS = "(%d) Ensemble : %s"
+    SPELL_STAT2_NAME = "Agilite"
+    tooltipLinesByItemID[100] = { { leftText = "(2) Ensemble : +5 Agilite" } }
+    equal(addon.sets.GetItemSetBonuses("item:100")[2].stats.Agility, 5, "localized set and primary-stat labels")
+    ITEM_SET_BONUS = localizedSetFormat
+    SPELL_STAT2_NAME = localizedAgility
+
+    local originalGrayFormat = rawget(_G, "ITEM_SET_BONUS_GRAY")
+    local originalAttackPowerLabel = rawget(_G, "ITEM_MOD_ATTACK_POWER_SHORT")
+    local originalRangedAttackPowerLabel = rawget(_G, "ITEM_MOD_RANGED_ATTACK_POWER_SHORT")
+    ITEM_SET_BONUS = "Set: %s"
+    ITEM_SET_BONUS_GRAY = "(%d) Set: %s"
+    ITEM_MOD_ATTACK_POWER_SHORT = "Attack Power"
+    tooltipLinesByItemID[100] = { { leftText = "(3) Set: +10 Attack Power" } }
+    local attackPowerBonuses, attackPowerLoaded = addon.sets.GetItemSetBonuses("item:100")
+    equal(attackPowerLoaded, true, "numbered set format is recognized when active format has no piece count")
+    equal(attackPowerBonuses[3].stats.AttackPower, 10, "attack power is read from the item's short stat line")
+    equal(addon.sets.GetSetBonusDelta(setDB, 77, {}, { [77] = 2 },
+        { AttackPower = 2 }, { [77] = attackPowerBonuses }), 20,
+        "tooltip attack power is weighted when the third piece is equipped")
+    equal(addon.sets.GetSetBonusDelta(setDB, nil, { { setID = 77 } }, { [77] = 3 },
+        { AttackPower = 2 }, { [77] = attackPowerBonuses }), -20,
+        "tooltip attack power is subtracted when the third piece is removed")
+    tooltipLinesByItemID[100] = { { leftText = "(3) Set: Increases attack power by 10." } }
+    equal(addon.sets.GetItemSetBonuses("item:100")[3].stats.AttackPower, 10,
+        "long attack power descriptions use the numbered set format too")
+    ITEM_SET_BONUS_GRAY = nil
+    tooltipLinesByItemID[100] = { { leftText = "(3) Set: +10 Attack Power" } }
+    equal(addon.sets.GetItemSetBonuses("item:100")[3].stats.AttackPower, 10,
+        "English numbered format works when the gray format global is absent")
+    ITEM_SET_BONUS_GRAY = "(%d) Ensemble : %s"
+    ITEM_MOD_ATTACK_POWER_SHORT = "Puissance d'attaque"
+    ITEM_MOD_RANGED_ATTACK_POWER_SHORT = "Puissance d'attaque a distance"
+    tooltipLinesByItemID[100] = {
+        { leftText = "|cff00ff00(3) Ensemble : +10 Puissance d'attaque|r" },
+        { leftText = "(4) Ensemble : +12 Puissance d'attaque a distance" },
+    }
+    local localizedAttackPower = addon.sets.GetItemSetBonuses("item:100")
+    equal(localizedAttackPower[3].stats.AttackPower, 10, "localized short attack power stat is detected")
+    equal(localizedAttackPower[4].stats.RangedAttackPower, 12, "localized short ranged attack power stat is detected")
+    ITEM_SET_BONUS = localizedSetFormat
+    ITEM_SET_BONUS_GRAY = originalGrayFormat
+    ITEM_MOD_ATTACK_POWER_SHORT = originalAttackPowerLabel
+    ITEM_MOD_RANGED_ATTACK_POWER_SHORT = originalRangedAttackPowerLabel
+
+    local lines = {
+        { leftText = "(2) Set: 10 Armor" },
+        { leftText = "(3) Set: +5 Agility" },
+        { leftText = "(4) Set: Improves your chance to hit by 1%." },
+        { leftText = "(5) Set: Increased Staves +2." },
+    }
+    tooltipLinesByItemID[100] = lines
+    local bonuses = { [77] = addon.sets.GetItemSetBonuses("item:100") }
+    local weights = { Agility = 2, Armor = 0.1, Hit = 3 }
+    local function SetDelta(setID, replaced, counts)
+        return addon.sets.GetSetBonusDelta(setDB, setID, replaced, counts, weights, bonuses)
+    end
+    equal(SetDelta(77, {}, {}), 0, "first piece does not activate a bonus")
+    equal(SetDelta(77, {}, { [77] = 1 }), 1, "second piece activates armor bonus")
+    equal(SetDelta(77, {}, { [77] = 2 }), 10, "third piece activates agility bonus only")
+    equal(SetDelta(nil, { { setID = 77 } }, { [77] = 3 }), -10, "removing third piece loses agility bonus")
+    equal(SetDelta(77, { { setID = 77 } }, { [77] = 3 }), 0, "same-set swap keeps existing bonuses")
+    equal(SetDelta(nil, { { setID = 77 }, { setID = 77 } }, { [77] = 3 }), -11,
+        "replacing two pieces can lose multiple thresholds")
+    bonuses[88] = { [2] = { stats = { Agility = 3 }, text = "+3 Agility" } }
+    equal(SetDelta(88, { { setID = 77 } }, { [77] = 3, [88] = 1 }), -4,
+        "swapping sets combines the gained and lost bonuses")
+    local _, hitDelta = SetDelta(77, {}, { [77] = 3 })
+    equal(hitDelta, 1, "hit bonuses are returned separately for cap handling")
+    equal(addon.sets.GetActiveSetHit(setDB, { [77] = 4 }, bonuses), 1, "active set hit is included in current hit")
+    local _, _, unscored = SetDelta(77, {}, { [77] = 4 })
+    equal(#unscored, 1, "unsupported threshold crossing is reported")
+    equal(unscored[1].threshold, 5, "unsupported threshold is identified")
+    local _, _, unchangedUnscored = SetDelta(77, { { setID = 77 } }, { [77] = 5 })
+    equal(#unchangedUnscored, 0, "unchanged unsupported bonuses do not affect a swap")
+    setDB.setBonuses[77] = { [3] = 25, [4] = 7, [5] = 9 }
+    equal(SetDelta(77, {}, { [77] = 2 }), 25, "manual value replaces rather than adds to automatic bonus")
+    local manualHitScore, manualHitDelta = SetDelta(77, {}, { [77] = 3 })
+    equal(manualHitScore, 7, "manual hit-bonus override remains fixed PL")
+    equal(manualHitDelta, 0, "manual override suppresses automatic hit")
+    equal(addon.sets.GetActiveSetHit(setDB, { [77] = 4 }, bonuses), 0, "manual override suppresses current automatic hit")
+    local manualScore, _, manualUnscored = SetDelta(77, {}, { [77] = 4 })
+    equal(manualScore, 9, "manual values support unknown effects")
+    equal(#manualUnscored, 0, "manual override resolves unsupported effect")
+    setDB.setBonuses[77][3] = 0
+    equal(SetDelta(77, {}, { [77] = 2 }), 0, "zero manual override is respected")
+    setDB.setBonuses[77][3] = nil
+    equal(SetDelta(77, {}, { [77] = 2 }), 10, "clearing an override restores automatic scoring")
+    setDB.setBonuses[77] = nil
+
+    currentClassName, currentClassFile = "Rogue", "ROGUE"
+    addon.talents.ResetActiveTalentTreeCache()
+    addon.hit.ResetTalentCache()
+    local setWeights = addon.profiles.EnsureActivityWeightProfiles(setDB, {})
+    for _, context in ipairs(addon.data.SCORING_CONTEXT_ORDER) do
+        local profile = setWeights.profiles.ROGUE[context.key]
+        for statName in pairs(profile.weights) do
+            profile.weights[statName] = 0
+        end
+        profile.weights.Agility = context.key == "PVP" and 3 or 2
+        profile.weights.Armor = 0.1
+        profile.weights.Hit = 3
+    end
+    setDB.displayContexts = { QUEST = true, PVP = true }
+    local evaluateSet, clearSetCache = addon.evaluation.Create(setDB, setWeights)
+    itemData[101] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 2,
+        stats = { ITEM_MOD_AGILITY_SHORT = 3 } }
+    for id = 102, 105 do
+        itemData[id] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 2,
+            setID = id ~= 104 and 77 or nil, stats = {} }
+        tooltipLinesByItemID[id] = lines
+    end
+    equippedBySlot = { [5] = "item:101", [6] = "item:102", [10] = "item:103" }
+    local activation = evaluateSet("item:100")
+    equal(activation.itemScore, 2, "individual item score excludes set stats")
+    equal(activation.comparisons[1].delta, 6, "set completion can turn a lower-stat chest into an upgrade")
+    equal(activation.comparisons[1].setBonusDelta, 10, "comparison exposes set contribution")
+    equal(activation.comparisons[2].delta, 9, "set stats use each activity profile's weights")
+    equal(activation.hasUnscoredSetBonus, false, "inactive unknown thresholds are not reported")
+    equal(activation.setBonusDataPending, false, "complete set data is recognized")
+    equal(evaluateSet("item:100"), activation, "complete set comparisons are cached")
+    do
+        local previousSetFormat = rawget(_G, "ITEM_SET_BONUS")
+        local previousGrayFormat = rawget(_G, "ITEM_SET_BONUS_GRAY")
+        ITEM_SET_BONUS = "Set: %s"
+        ITEM_SET_BONUS_GRAY = "(%d) Set: %s"
+        lines[2].leftText = "(3) Set: +10 Attack Power"
+        setWeights.profiles.ROGUE.QUEST.weights.AttackPower = 2
+        setWeights.profiles.ROGUE.PVP.weights.AttackPower = 4
+        clearSetCache()
+        local attackPowerComparison = evaluateSet("item:100")
+        equal(attackPowerComparison.setBonusDataPending, false, "live-style globals do not report missing set data")
+        equal(attackPowerComparison.hasUnscoredSetBonus, false, "short attack power bonus needs no manual override")
+        equal(attackPowerComparison.comparisons[1].delta, 16, "quest comparison uses detected attack power")
+        equal(attackPowerComparison.comparisons[2].delta, 34, "pvp comparison uses its own attack power weight")
+        equippedBySlot[5] = "item:100"
+        clearSetCache()
+        equal(evaluateSet("item:101").comparisons[1].delta, -16, "removing live-style attack power set bonus is scored")
+        equippedBySlot[5] = "item:101"
+        lines[2].leftText = "(3) Set: +10 Attack Power for 5 sec."
+        clearSetCache()
+        equal(evaluateSet("item:100").hasUnscoredSetBonus, true, "conditional short attack power is not treated as permanent")
+        lines[2].leftText = "(3) Set: +5 Agility"
+        setWeights.profiles.ROGUE.QUEST.weights.AttackPower = 0
+        setWeights.profiles.ROGUE.PVP.weights.AttackPower = 0
+        ITEM_SET_BONUS = previousSetFormat
+        ITEM_SET_BONUS_GRAY = previousGrayFormat
+    end
+    equippedBySlot[5] = "item:100"
+    clearSetCache()
+    equal(evaluateSet("item:101").comparisons[1].delta, -6, "non-set replacement accounts for losing equipped set bonus")
+
+    equippedBySlot = { [5] = "item:101", [6] = "item:102", [10] = "item:103", [7] = "item:105", [1] = "item:104" }
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 4
+    clearSetCache()
+    equal(addon.hit.GetItemHitPercent("item:100"), nil, "inactive set hit is not counted as item hit")
+    equal(evaluateSet("item:100").comparisons[1].delta, -1, "new set hit is capped with the complete loadout")
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 5
+    clearSetCache()
+    equal(evaluateSet("item:100").comparisons[1].delta, -4, "set hit above cap adds no PL")
+    equippedBySlot[5] = "item:100"
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 4
+    clearSetCache()
+    equal(evaluateSet("item:101").comparisons[1].delta, 1, "losing active set hit respects the cap")
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 5
+    clearSetCache()
+    equal(evaluateSet("item:101").comparisons[1].delta, 4, "losing excess set hit does not subtract PL")
+
+    equippedBySlot[5] = "item:101"
+    itemData[104].setID = 77
+    clearSetCache()
+    local unknown = evaluateSet("item:100")
+    equal(unknown.hasUnscoredSetBonus, true, "unsupported activated set effect is exposed to the UI")
+    equal(unknown.comparisons[1].unscoredSetBonuses[1].threshold, 5, "debug data identifies unscored effect")
+    local debugMessages = {}
+    local originalChat = DEFAULT_CHAT_FRAME
+    DEFAULT_CHAT_FRAME = { AddMessage = function(_, message) debugMessages[#debugMessages + 1] = message end }
+    addon.presentation.PrintDebug(unknown)
+    equal(table.concat(debugMessages, "\n"):find("Increased Staves", 1, true) ~= nil, true,
+        "debug output explains unsupported set effects")
+    DEFAULT_CHAT_FRAME = originalChat
+
+    equippedBySlot = { [5] = "item:101" }
+    tooltipLinesByItemID[100] = { { leftText = "Item data still loading" } }
+    clearSetCache()
+    equal(evaluateSet("item:100").setBonusDataPending, true, "missing candidate set tooltip is reported")
+    tooltipLinesByItemID[100] = lines
+    equal(evaluateSet("item:100").setBonusDataPending, false, "candidate set data retries without cache invalidation")
+    equippedBySlot = { [5] = "item:100" }
+    tooltipLinesByItemID[100] = {}
+    clearSetCache()
+    equal(evaluateSet("item:101").setBonusDataPending, true, "missing equipped set tooltip is reported")
+    tooltipLinesByItemID[100] = lines
+    equal(evaluateSet("item:101").setBonusDataPending, false, "equipped set data retries without cache invalidation")
+    itemData[100].stats = {}
+    equippedBySlot = { [6] = "item:102", [10] = "item:103" }
+    clearSetCache()
+    equal(evaluateSet("item:100").comparisons[1].delta, 10, "statless set piece can complete a bonus")
+
+    itemData[106] = { equipLocation = "INVTYPE_FINGER", classID = 4, subclassID = 0,
+        setID = 77, stats = { ITEM_MOD_AGILITY_SHORT = 1 } }
+    itemData[107] = { equipLocation = "INVTYPE_FINGER", classID = 4, subclassID = 0,
+        stats = { ITEM_MOD_AGILITY_SHORT = 3 } }
+    itemData[108] = { equipLocation = "INVTYPE_FINGER", classID = 4, subclassID = 0,
+        setID = 77, stats = { ITEM_MOD_AGILITY_SHORT = 3 } }
+    tooltipLinesByItemID[106] = lines
+    tooltipLinesByItemID[108] = lines
+    equippedBySlot = { [6] = "item:102", [11] = "item:107", [12] = "item:108" }
+    clearSetCache()
+    local ring = evaluateSet("item:106")
+    equal(ring.comparisons[1].delta, 6, "first ring comparison can complete a set")
+    equal(ring.comparisons[2].delta, -4, "second ring comparison preserves the same set count")
+    setDB.setBonuses[77] = { [3] = 30 }
+    clearSetCache()
+    equal(evaluateSet("item:106").comparisons[1].delta, 26, "override changes refresh cached comparisons")
+    setDB.setBonuses[77] = nil
+    clearSetCache()
+    equal(evaluateSet("item:106").comparisons[1].delta, 6, "cleared override restores automatic cached comparison")
+
+    itemData[112] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 15,
+        setID = 77, stats = { ITEM_MOD_AGILITY_SHORT = 1 } }
+    itemData[113] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 15,
+        stats = { ITEM_MOD_AGILITY_SHORT = 3 } }
+    tooltipLinesByItemID[112] = lines
+    equippedBySlot = { [6] = "item:102", [10] = "item:103", [16] = "item:113" }
+    setDB.enchantBonuses[123] = 7
+    clearSetCache()
+    local enchanted = evaluateSet("|Hitem:112:123|h[Test weapon]|h")
+    equal(enchanted.comparisons[1].delta, 13, "enchanted comparison includes one set activation")
+    equal(enchanted.comparisons[1].deltaWithoutEnchant, 6, "unenchanted comparison includes the same set activation")
+
+    currentClassName, currentClassFile = "Warrior", "WARRIOR"
+    addon.talents.ResetActiveTalentTreeCache()
+    addon.hit.ResetTalentCache()
+    local warriorProfile = setWeights.profiles.WARRIOR.QUEST
+    for statName in pairs(warriorProfile.weights) do
+        warriorProfile.weights[statName] = 0
+    end
+    warriorProfile.weights.Agility = 2
+    warriorProfile.weights.Armor = 0.1
+    setDB.displayContexts = { QUEST = true }
+    itemData[109] = { equipLocation = "INVTYPE_2HWEAPON", classID = 2, subclassID = 8,
+        stats = { ITEM_MOD_AGILITY_SHORT = 1 } }
+    itemData[110] = { equipLocation = "INVTYPE_WEAPONMAINHAND", classID = 2, subclassID = 7,
+        setID = 77, stats = { ITEM_MOD_AGILITY_SHORT = 1 } }
+    itemData[111] = { equipLocation = "INVTYPE_WEAPONOFFHAND", classID = 2, subclassID = 15,
+        setID = 77, stats = { ITEM_MOD_AGILITY_SHORT = 1 } }
+    tooltipLinesByItemID[110] = lines
+    tooltipLinesByItemID[111] = lines
+    equippedBySlot = { [6] = "item:102", [16] = "item:110", [17] = "item:111" }
+    clearSetCache()
+    equal(evaluateSet("item:109").comparisons[1].delta, -13,
+        "two-handed swap loses bonuses from both removed set weapons")
+
+    local getHyperlink = C_TooltipInfo.GetHyperlink
+    C_TooltipInfo.GetHyperlink = nil
+    local missingBonuses, missingReady = addon.sets.GetItemSetBonuses("item:100")
+    equal(next(missingBonuses), nil, "missing tooltip API has no fabricated bonuses")
+    equal(missingReady, false, "missing tooltip API is reported as unavailable")
+    C_TooltipInfo.GetHyperlink = getHyperlink
+end
+
+do
+    local originalSetFormat = rawget(_G, "ITEM_SET_BONUS")
+    local originalGrayFormat = rawget(_G, "ITEM_SET_BONUS_GRAY")
+    ITEM_SET_BONUS = "Set: %s"
+    ITEM_SET_BONUS_GRAY = "(%d) Set: %s"
+    local learningDB = addon.profiles.NormalizeDatabase({})
+    local learningWeights = addon.profiles.EnsureActivityWeightProfiles(learningDB, {})
+    currentClassName, currentClassFile = "Rogue", "ROGUE"
+    addon.talents.ResetActiveTalentTreeCache()
+    addon.hit.ResetTalentCache()
+    for statName in pairs(learningWeights.profiles.ROGUE.QUEST.weights) do
+        learningWeights.profiles.ROGUE.QUEST.weights[statName] = 0
+    end
+    learningWeights.profiles.ROGUE.QUEST.weights.Agility = 2
+    learningWeights.profiles.ROGUE.QUEST.weights.AttackPower = 1
+    itemData[200] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 2,
+        setID = 200, stats = { ITEM_MOD_AGILITY_SHORT = 1 } }
+    itemData[201] = { equipLocation = "INVTYPE_CHEST", classID = 4, subclassID = 2,
+        stats = { ITEM_MOD_AGILITY_SHORT = 3 } }
+    itemData[202] = { equipLocation = "INVTYPE_WAIST", classID = 4, subclassID = 2,
+        setID = 200, stats = {} }
+    itemData[203] = { equipLocation = "INVTYPE_HAND", classID = 4, subclassID = 2,
+        setID = 200, stats = {} }
+    local inactive = {
+        { leftText = "(2) Set: +10 Intellect." },
+        { leftText = "(3) Set: +10 Attack Power." },
+        { leftText = "(4) Set: An unsupported proc." },
+    }
+    local active = {
+        { leftText = "Set: +10 Intellect.", type = 0 },
+        { leftText = "Set: +10 Attack Power.", type = 0 },
+        { leftText = "(4) Set: An unsupported proc.", type = 42 },
+    }
+    for _, id in ipairs({ 200, 202, 203 }) do
+        tooltipLinesByItemID[id] = active
+    end
+    equippedBySlot = { [5] = "item:200", [6] = "item:202", [10] = "item:203" }
+    local evaluateLearned, clearLearned = addon.evaluation.Create(learningDB, learningWeights)
+    local coldComparison = evaluateLearned("item:201")
+    equal(coldComparison.setBonusDataPending, true, "unlearned green bonuses cannot silently count as complete data")
+    equal(learningDB.setBonusThresholds[200]["4"], nil, "learned thresholds use numeric keys")
+    equal(learningDB.setBonusThresholds[200][4][1], "An unsupported proc.", "numbered effects are learned even beside unresolved active effects")
+    for _, id in ipairs({ 200, 202, 203 }) do
+        tooltipLinesByItemID[id] = inactive
+    end
+    equippedBySlot = { [6] = "item:202" }
+    clearLearned()
+    equal(evaluateLearned("item:200").setBonusDataPending, false, "hovering an inactive set piece teaches its thresholds")
+    equal(learningDB.setBonusThresholds[200][3][1], "+10 Attack Power.", "attack power threshold comes from tooltip rather than item entries")
+    equippedBySlot[10] = "item:203"
+    clearLearned()
+    equal(evaluateLearned("item:200").comparisons[1].delta, 12, "bag candidate includes newly activated learned attack power")
+    equippedBySlot[5] = "item:201"
+    clearLearned()
+    equal(evaluateLearned("item:200").comparisons[1].delta, 6, "set item in bag beats higher individual stats when activating attack power")
+    for _, id in ipairs({ 200, 202, 203 }) do
+        tooltipLinesByItemID[id] = active
+    end
+    equippedBySlot[5] = "item:200"
+    clearLearned()
+    local reverseComparison = evaluateLearned("item:201")
+    equal(reverseComparison.setBonusDataPending, false, "green bonuses resolve using learned thresholds")
+    equal(reverseComparison.comparisons[1].setBonusDelta, -10, "removing equipped green three-piece bonus subtracts attack power")
+    equal(reverseComparison.comparisons[1].delta, -6, "reverse comparison agrees with bag candidate comparison")
+    local reloadedDB = addon.profiles.NormalizeDatabase({
+        setBonusThresholds = learningDB.setBonusThresholds,
+    })
+    local afterReload = addon.evaluation.Create(reloadedDB, learningWeights)
+    equal(afterReload("item:201").comparisons[1].delta, -6, "saved learning survives a fresh database and evaluator")
+    local charDB = addon.profiles.GetCharacterDatabases(reloadedDB, {}, "SetLearning-Realm")
+    equal(charDB.setBonusThresholds, reloadedDB.setBonusThresholds, "learned item-set definitions are shared across characters")
+    equal(rawget(charDB, "setBonusThresholds"), nil, "learned definitions are not duplicated into character saves")
+
+    learningDB.setBonusThresholds[200] = {
+        [3] = { "+10 Intellect." }, [6] = { "+10 Attack Power." },
+    }
+    local gapped, gappedLoaded = addon.sets.GetItemSetBonuses("item:200", learningDB)
+    equal(gappedLoaded, true, "active bonuses resolve without assuming consecutive thresholds")
+    equal(gapped[6].stats.AttackPower, 10, "nonconsecutive learned threshold is preserved")
+    learningDB.setBonusThresholds[200][3] = { "+10 Attack Power." }
+    local _, ambiguousLoaded = addon.sets.GetItemSetBonuses("item:200", learningDB)
+    equal(ambiguousLoaded, false, "ambiguous identical descriptions do not guess an active threshold")
+
+    active[2].leftText = "Set: Improves your chance to hit by 1%."
+    learningDB.setBonusThresholds[200] = {
+        [2] = { "+10 Intellect." }, [3] = { "Improves your chance to hit by 1%." },
+    }
+    clearLearned()
+    equal(addon.hit.GetItemHitPercent("item:200"), nil, "unnumbered active set hit is excluded from item hit")
+    local activeHitBonuses, activeHitLoaded = addon.sets.GetItemSetBonuses("item:200", learningDB)
+    equal(activeHitLoaded, true, "active set hit resolves from learned data")
+    equal(addon.sets.GetActiveSetHit(learningDB, { [200] = 3 }, { [200] = activeHitBonuses }), 1,
+        "active learned set hit is counted once in loadout hit")
+    local _, activeText = addon.items.GetSetBonusLine("|cff00ff00Set: +10 Attack Power.|r")
+    equal(activeText, "+10 Attack Power.", "active green set line is recognized independently of its threshold")
+    ITEM_SET_BONUS = originalSetFormat
+    ITEM_SET_BONUS_GRAY = originalGrayFormat
+end
 
 print(string.format("GearDuck Lua tests passed (%d assertions).", passed))

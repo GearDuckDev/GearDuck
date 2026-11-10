@@ -1,26 +1,30 @@
-# GearDuck 1.0.0-release
+# GearDuck 1.1.0-release
 
-GearDuck 1.0.0 is the first stable release of the WoW: Forever gear-comparison
-addon. It scores items with editable stat weights and compares them with
-currently equipped gear, showing Upgrade, Sidegrade, or Downgrade results in
-item tooltips.
+## Set-aware gear comparisons
 
-## Features
+- Automatically reads supported unconditional set-bonus stats from item
+  tooltips, with no item-specific bonus entries.
+- Adds a bonus only when a swap activates its piece-count threshold, and
+  subtracts it when replacing equipped gear breaks that threshold.
+- Uses each Questing, Raid, and PvP profile's weights and caps set Hit
+  together with the rest of the loadout.
+- Remembers learned thresholds across reloads, allowing active green
+  `Set: ...` lines to be scored even when they hide their piece counts.
+- Preserves manual `/gd setbonus` values as full overrides at their
+  thresholds. Clearing an override restores supported automatic scoring.
+- Flags unsupported effects and incomplete set data, with details available
+  through `/gd debug`.
+- Expands Lua 5.1 regression coverage to 436 assertions, including negative
+  item stats, set activation/loss, overrides, and reverse comparisons.
 
-- Automatically selects class and talent-tree weights, with independent
-  Questing, Raid, and PvP profiles and configurable physical and spell hit caps.
-- Compares applicable equipment slots, including separate ring, trinket, and
-  one-handed weapon comparisons and combined two-handed weapon comparisons.
-- Checks class, level, armor, weapon, and talent eligibility before showing
-  comparisons or upgrade arrows.
-- Marks eligible upgrades in supported bags and item panels, with configurable
-  arrow placement and support for Blizzard bags and Baganator.
-- Scores weapon damage, speed, supported racial skills and talent effects, and
-  enchanted weapons with and without their enchants.
-- Provides editable stat weights, manual values for item and enchant effects
-  and set bonuses, an in-game setup guide, options, and debug commands.
-- Stores persistent weights in the required GearDuck Weights companion addon,
-  separately from addon code updates.
+## First use with an active set
+
+If a set is already active when GearDuck first encounters it, briefly unequip
+enough pieces to make its bonuses gray, hover a set item, then re-equip.
+GearDuck learns the numbered thresholds and saves them for future comparisons.
+
+Conditional effects, procs, and other unsupported bonuses still require a
+manual value. Existing custom weights and manual values are preserved.
 
 Power Level is a configurable estimate, not a DPS simulation. Starter weights
 are broad level-60 Classic-style baselines and can be customized in game.

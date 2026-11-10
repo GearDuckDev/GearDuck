@@ -86,7 +86,9 @@ local function EnsureUpgradeArrowSetting(database)
     database.upgradeArrowPosition = profiles.GetUpgradeArrowPosition(database).key
 end
 
-local SHARED_DATABASE_KEYS = { itemBonuses = true, enchantBonuses = true, setBonuses = true }
+local SHARED_DATABASE_KEYS = {
+    itemBonuses = true, enchantBonuses = true, setBonuses = true, setBonusThresholds = true,
+}
 
 function profiles.NormalizeDatabase(database, isCharacterDatabase)
     if type(database) ~= "table" then

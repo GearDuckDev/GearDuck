@@ -49,6 +49,7 @@ function evaluation.Create(database, weightDatabase)
 
         local equippedLinks = {}
         local setCounts = {}
+        local setBonuses = {}
         local equippedHit = 0
         local allEquippedLoaded = true
         for slot = 1, 19 do
@@ -62,23 +63,36 @@ function evaluation.Create(database, weightDatabase)
                 local _, setID = items.GetItemMetadata(equippedLink)
                 if setID then
                     setCounts[setID] = (setCounts[setID] or 0) + 1
+                    if not setBonuses[setID] then
+                        local bonuses, loaded = sets.GetItemSetBonuses(equippedLink, gearDuckDB)
+                        if loaded then
+                            setBonuses[setID] = bonuses
+                        end
+                    end
                 end
             end
         end
 
         local mainHandClassID, _, mainHandEquipLoc = equipment.GetItemClassInfo(equippedLinks[16])
         local offHandClassID = equipment.GetItemClassInfo(equippedLinks[17])
+        local allSetBonusesLoaded = true
+        for setID in pairs(setCounts) do
+            if not setBonuses[setID] then
+                allSetBonusesLoaded = false
+            end
+        end
         local state = {
             allEquippedLoaded = allEquippedLoaded,
             equippedLinks = equippedLinks,
             setCounts = setCounts,
+            setBonuses = setBonuses,
             equippedHit = equippedHit,
             mainHandIsWeapon = mainHandClassID == 2,
             offHandIsWeapon = offHandClassID == 2,
             mainHandIsTwoHander = mainHandEquipLoc == "INVTYPE_2HWEAPON",
             slotItemsByContext = {},
         }
-        if allEquippedLoaded then
+        if allEquippedLoaded and allSetBonusesLoaded then
             equippedStateCache = state
         end
         return state
@@ -149,6 +163,7 @@ function evaluation.Create(database, weightDatabase)
         local weaponData = itemClassID == 2 and items.GetWeaponData(itemLink) or nil
         if next(rawItemStats) == nil
             and not weaponData
+            and not itemSetID
             and not (itemID and gearDuckDB.itemBonuses[itemID]) then
             -- Decorative items such as tabards have nothing to compare.
             return CacheAndReturnNil(itemLink)
@@ -160,7 +175,25 @@ function evaluation.Create(database, weightDatabase)
 
         local equippedState = GetEquippedState()
         local setCounts = equippedState.setCounts
-        local equippedHit = equippedState.equippedHit
+        local setBonuses = {}
+        for setID, bonuses in pairs(equippedState.setBonuses) do
+            setBonuses[setID] = bonuses
+        end
+        local candidateSetLoaded = true
+        if itemSetID then
+            local bonuses, loaded = sets.GetItemSetBonuses(itemLink, gearDuckDB)
+            if loaded then
+                setBonuses[itemSetID] = bonuses
+            end
+            candidateSetLoaded = setBonuses[itemSetID] ~= nil
+        end
+        local setBonusDataPending = not candidateSetLoaded
+        for setID in pairs(setCounts) do
+            if not setBonuses[setID] then
+                setBonusDataPending = true
+            end
+        end
+        local equippedHit = equippedState.equippedHit + sets.GetActiveSetHit(gearDuckDB, setCounts, setBonuses)
         local itemHitPercent = hit.GetItemHitPercent(itemLink) or 0
         local unenchantedHitPercent = isEnchantedWeapon and (hit.GetItemHitPercent(unenchantedLink) or 0) or itemHitPercent
 
@@ -172,6 +205,7 @@ function evaluation.Create(database, weightDatabase)
         local itemScore
         local itemBreakdown
         local itemScoreWithoutEnchant
+        local hasUnscoredSetBonus = false
         for _, context in ipairs(SCORING_CONTEXT_ORDER) do
             if gearDuckDB.displayContexts[context.key] then
                 local classNameForContext, classFileForContext, classWeights, treeKey, treeName, treePoints =
@@ -272,23 +306,32 @@ function evaluation.Create(database, weightDatabase)
                         itemScore = currentItemScore,
                         replacedItems = slotComparison.replacedItems,
                     }
-                    local setBonusDelta = sets.GetSetBonusDelta(
+                    local setBonusDelta, setHitDelta, unscoredSetBonuses = sets.GetSetBonusDelta(
                         gearDuckDB,
                         itemSetID,
                         comparison.replacedItems,
-                        setCounts
+                        setCounts,
+                        classWeights,
+                        setBonuses
                     )
+                    comparison.setBonusDelta = setBonusDelta
+                    comparison.setHitDelta = setHitDelta
+                    comparison.unscoredSetBonuses = unscoredSetBonuses
+                    if #unscoredSetBonuses > 0 then
+                        hasUnscoredSetBonus = true
+                    end
                     local replacementHit = 0
                     for _, replacedItem in ipairs(comparison.replacedItems) do
                         replacementHit = replacementHit + (replacedItem.hitPercent or 0)
                     end
-                    local cappedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + itemHitPercent))
+                    local cappedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + itemHitPercent + setHitDelta))
                         - cappedCurrentEquippedHit
+                    comparison.hitAdjustment = (cappedHitDelta - (itemHitPercent - replacementHit)) * hitWeight
                     comparison.delta = currentItemScore - comparison.equippedScore
-                        + (cappedHitDelta - (itemHitPercent - replacementHit)) * hitWeight
+                        + comparison.hitAdjustment
                         + setBonusDelta
                     if isEnchantedWeapon then
-                        local cappedUnenchantedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + unenchantedHitPercent))
+                        local cappedUnenchantedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + unenchantedHitPercent + setHitDelta))
                             - cappedCurrentEquippedHit
                         comparison.deltaWithoutEnchant = currentItemScoreWithoutEnchant - comparison.equippedScore
                             + (cappedUnenchantedHitDelta - (unenchantedHitPercent - replacementHit)) * hitWeight
@@ -318,9 +361,12 @@ function evaluation.Create(database, weightDatabase)
             hitCaps = hitCaps,
             equipped = equipped,
             comparisons = comparisons,
+            hasUnscoredSetBonus = hasUnscoredSetBonus,
+            setBonusDataPending = setBonusDataPending,
         }
         local getItemInfo = (C_Item and rawget(C_Item, "GetItemInfo")) or rawget(_G, "GetItemInfo")
-        if canEquip ~= nil and equippedState.allEquippedLoaded and (not getItemInfo or getItemInfo(itemLink)) then
+        if canEquip ~= nil and not setBonusDataPending
+            and equippedState.allEquippedLoaded and (not getItemInfo or getItemInfo(itemLink)) then
             evaluationCache[itemLink] = evaluationResult
         end
         return evaluationResult

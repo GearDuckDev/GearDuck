@@ -100,7 +100,8 @@ local function GetCompiledFormatPattern(formatString)
                     formatPatternCache[formatString] = false
                     return nil
                 end
-                parts[#parts + 1] = "([%d%.,]+)"
+                local conversion = formatString:sub(conversionEnd, conversionEnd)
+                parts[#parts + 1] = conversion == "s" and "(.-)" or "([%+%-]?[%d%.,]+)"
                 captures = captures + 1
                 index = conversionEnd + 1
             end
@@ -122,7 +123,7 @@ local function GetCompiledFormatPattern(formatString)
     return compiled
 end
 
-local function ParseFormatLine(text, formatString)
+function items.MatchFormatLine(text, formatString)
     if type(text) ~= "string" or type(formatString) ~= "string" or text == "" then
         return nil
     end
@@ -136,7 +137,14 @@ local function ParseFormatLine(text, formatString)
     if #values ~= compiled.captures then
         return nil
     end
+    return values
+end
 
+local function ParseFormatLine(text, formatString)
+    local values = items.MatchFormatLine(text, formatString)
+    if not values then
+        return nil
+    end
     for valueIndex, value in ipairs(values) do
         values[valueIndex] = tonumber((value:gsub(",", ".")))
         if not values[valueIndex] then
@@ -144,6 +152,31 @@ local function ParseFormatLine(text, formatString)
         end
     end
     return values
+end
+
+function items.GetSetBonusLine(text)
+    if type(text) ~= "string" then
+        return nil
+    end
+    local normalized = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("^%s*(.-)%s*$")
+    local formats = {
+        rawget(_G, "ITEM_SET_BONUS_GRAY") or "(%d) Set: %s",
+        rawget(_G, "ITEM_SET_BONUS") or "(%d) Set: %s",
+        "(%d) Set: %s",
+    }
+    for _, formatString in ipairs(formats) do
+        local values = items.MatchFormatLine(normalized, formatString)
+        local threshold = values and tonumber(values[1])
+        if threshold and threshold > 0 and type(values[2]) == "string" then
+            return threshold, values[2]
+        end
+    end
+    local activeValues = items.MatchFormatLine(normalized, rawget(_G, "ITEM_SET_BONUS") or "Set: %s")
+        or items.MatchFormatLine(normalized, "Set: %s")
+    if activeValues and #activeValues == 1 then
+        return nil, activeValues[1]
+    end
+    return nil
 end
 
 function items.GetWeaponData(itemLink)
