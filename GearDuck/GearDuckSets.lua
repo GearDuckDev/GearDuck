@@ -4,6 +4,33 @@ local sets = {}
 addon.sets = sets
 
 local items = addon.items
+local percentRatings = {
+    Crit = { index = "CR_CRIT_MELEE", fallbackIndex = 9, divisor = 14 },
+    Dodge = { index = "CR_DODGE", fallbackIndex = 3, divisor = 12 },
+    Parry = { index = "CR_PARRY", fallbackIndex = 4, divisor = 15 },
+    Haste = { index = "CR_HASTE_MELEE", fallbackIndex = 18, divisor = 10 },
+    Block = { index = "CR_BLOCK", fallbackIndex = 5, divisor = 5 },
+}
+local warnedRatingFallback = false
+
+local function PercentToRating(statName, amount)
+    local rating = percentRatings[statName]
+    if not rating then
+        return amount
+    end
+    local convert = rawget(_G, "GetCombatRatingBonusForCombatRatingValue")
+    local perRating = convert and convert(rawget(_G, rating.index) or rating.fallbackIndex, 1)
+    if type(perRating) == "number" and perRating > 0 then
+        return amount / perRating
+    end
+    if not warnedRatingFallback then
+        warnedRatingFallback = true
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Set-bonus rating conversion unavailable; using level-60 estimates.")
+        end
+    end
+    return amount * rating.divisor
+end
 
 local PRIMARY_STATS = { "Strength", "Agility", "Stamina", "Intellect", "Spirit" }
 local ATTACK_POWER_LABELS = {
@@ -22,6 +49,15 @@ local EFFECT_FORMATS = {
     Crit = { "Improves your chance to get a critical strike by %d%%." },
     Dodge = { "Increases your chance to dodge an attack by %d%%." },
     Parry = { "Increases your chance to parry an attack by %d%%." },
+    Expertise = {
+        "Reduces the chance for your attacks to be dodged or parried by %d%%.",
+        "Reduces the chance for your melee attacks to be dodged or parried by %d%%.",
+        "Reduces the chance for your attacks to be Dodged or Parried by %d%%.",
+        "Reduces the chance for your melee attacks to be Dodged or Parried by %d%%.",
+    },
+    Haste = { "Increases your haste by %d%%." },
+    Block = { "Increases your chance to block by %d%%." },
+    BlockValue = { "Increases the block value of your shield by %d." },
 }
 
 local function ParseBonusStats(text)
@@ -214,7 +250,10 @@ function sets.GetSetBonusDelta(database, itemSetID, replacedItems, setCounts, we
                         if statName == "Hit" then
                             hitDelta = hitDelta + change * amount
                         else
-                            delta = delta + change * amount * (weights[statName] or 0)
+                            delta = delta + change * PercentToRating(statName, amount) * (weights[statName] or 0)
+                            if statName == "SpellPower" then
+                                delta = delta + change * amount * (weights.Healing or 0)
+                            end
                         end
                     end
                 elseif bonus then

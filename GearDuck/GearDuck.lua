@@ -141,6 +141,9 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
         if evaluation.setBonusDataPending then
             tooltip:AddLine("|cffffff00Set bonus data incomplete; see /gd debug to learn hidden thresholds.|r")
         end
+        if evaluation.extraStatsPending then
+            tooltip:AddLine("|cffffff00Item tooltip stats incomplete; comparison will be retried.|r")
+        end
         tooltip:Show()
     end
 end)

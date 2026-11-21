@@ -4,7 +4,7 @@ local profiles = {}
 
 addon.profiles = profiles
 
--- Older SavedVariables contain class-only defaults; this tracks the preset migration.
+-- Retained for compatibility with existing SavedVariables.
 local WEIGHT_DEFAULTS_VERSION = 1
 
 local function CopyWeights(weights)
@@ -100,12 +100,24 @@ function profiles.NormalizeDatabase(database, isCharacterDatabase)
     if type(database.talentWeights) ~= "table" then
         database.talentWeights = {}
     end
+    if database.feralRole ~= "BEAR" then
+        database.feralRole = "CAT"
+    end
     if not isCharacterDatabase then
         for key in pairs(SHARED_DATABASE_KEYS) do
             if type(database[key]) ~= "table" then
                 database[key] = {}
             end
         end
+    end
+
+    function profiles.GetActiveProfileTree(database, classFile)
+        local treeKey, treeName, points, configID = addon.talents.GetActiveTalentTree()
+        if classFile == "DRUID" and treeKey == "TREE_2" then
+            local role = database.feralRole == "BEAR" and "BEAR" or "CAT"
+            return "FERAL_" .. role, role == "BEAR" and "Feral Bear" or "Feral Cat", points, configID
+        end
+        return treeKey, treeName, points, configID
     end
 
     EnsureUpgradeArrowSetting(database)
@@ -231,15 +243,6 @@ function profiles.EnsureActivityWeightProfiles(legacyDatabase, characterWeightDa
                 local legacyProfile = legacyWeights[classFile]
                 profile.weights = CopyWeights(type(legacyProfile) == "table" and legacyProfile or defaults.weights)
             end
-            if profile.weightDefaultsVersion ~= WEIGHT_DEFAULTS_VERSION then
-                local oldDefaults = data.CLASS_WEIGHTS[classFile]
-                for statName in pairs(data.STAT_KEYS) do
-                    if type(profile.weights[statName]) == "number"
-                        and profile.weights[statName] == (oldDefaults[statName] or 0) then
-                        profile.weights[statName] = defaults.weights[statName] or 0
-                    end
-                end
-            end
             profile.weights = profiles.EnsureWeightProfile(profile.weights, defaults.weights)
             profile.weightDefaultsVersion = WEIGHT_DEFAULTS_VERSION
 
@@ -273,21 +276,11 @@ function profiles.EnsureActivityWeightProfiles(legacyDatabase, characterWeightDa
                 end
             end
 
-            local migrateTalentDefaults = profile.talentDefaultsVersion ~= WEIGHT_DEFAULTS_VERSION
             for treeKey, treeProfile in pairs(profile.talentWeights) do
                 if type(treeProfile) ~= "table" then
                     treeProfile = {}
                 end
                 local treeDefaults = GetTalentDefaults(classFile, contextKey, treeKey)
-                if migrateTalentDefaults then
-                    local oldDefaults = data.CLASS_WEIGHTS[classFile]
-                    for statName in pairs(data.STAT_KEYS) do
-                        if type(treeProfile[statName]) == "number"
-                            and treeProfile[statName] == (oldDefaults[statName] or 0) then
-                            treeProfile[statName] = treeDefaults[statName] or 0
-                        end
-                    end
-                end
                 profile.talentWeights[treeKey] = profiles.EnsureWeightProfile(
                     treeProfile,
                     treeDefaults
@@ -309,6 +302,29 @@ function profiles.GetTalentWeightProfile(weightDatabase, classFile, contextKey, 
         return activityProfile.weights
     end
 
+    if not activityProfile.talentWeights[treeKey] then
+        local oldProfile
+        if classFile == "DRUID" and (treeKey == "FERAL_CAT" or treeKey == "FERAL_BEAR") then
+            oldProfile = activityProfile.talentWeights.TREE_2
+        end
+        if not oldProfile and addon.talents and UnitClass then
+            local _, playerClass = UnitClass("player")
+            local _, _, _, configID = addon.talents.GetActiveTalentTree()
+            local traits = rawget(_G, "C_Traits")
+            local config = playerClass == classFile and configID and traits and traits.GetConfigInfo
+                and traits.GetConfigInfo(configID)
+            if config and type(config.treeIDs) == "table" then
+                local ids = {}
+                for _, id in ipairs(config.treeIDs) do
+                    ids[#ids + 1] = tostring(id)
+                end
+                oldProfile = activityProfile.talentWeights["TRAIT_" .. table.concat(ids, "_")]
+            end
+        end
+        if type(oldProfile) == "table" then
+            activityProfile.talentWeights[treeKey] = CopyWeights(oldProfile)
+        end
+    end
     local defaults = GetTalentDefaults(classFile, contextKey, treeKey)
     activityProfile.talentWeights[treeKey] = profiles.EnsureWeightProfile(
         activityProfile.talentWeights[treeKey],

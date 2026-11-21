@@ -30,6 +30,49 @@ function talents.GetActiveTalentTree()
         local configInfo = configID and getConfigInfo(configID)
         local treeIDs = configInfo and configInfo.treeIDs
         if type(treeIDs) == "table" and #treeIDs > 0 then
+            local getGroups = traits and rawget(traits, "GetGroupDisplayInfoByTreeID")
+            local getGroupCurrency = traits and rawget(traits, "GetGroupCurrencyInfo")
+            if getGroups and getGroupCurrency then
+                local bestIndex, bestName, bestPoints
+                for _, treeID in ipairs(treeIDs) do
+                    local groups = getGroups(treeID) or {}
+                    local groupIDs, groupByID = {}, {}
+                    table.sort(groups, function(a, b)
+                        return (tonumber(a.orderIndex) or 0) < (tonumber(b.orderIndex) or 0)
+                    end)
+                    for index, group in ipairs(groups) do
+                        groupIDs[#groupIDs + 1] = group.groupID
+                        groupByID[group.groupID] = { index = index, name = group.displayName }
+                    end
+                    if #groupIDs > 0 then
+                        for _, group in ipairs(getGroupCurrency(configID, groupIDs) or {}) do
+                            local display = groupByID[group.traitNodeGroupID]
+                            local points = 0
+                            for _, currency in ipairs(group.currencyInfos or {}) do
+                                points = points + (tonumber(currency.spent) or 0)
+                            end
+                            local index = display and display.index
+                            if index and index <= 3 and points > 0
+                                and (not bestPoints or points > bestPoints
+                                    or (points == bestPoints and index < bestIndex)) then
+                                bestIndex, bestName, bestPoints = index, display.name, points
+                            end
+                        end
+                    end
+                end
+                if bestIndex then
+                    activeTalentTreeCache = {
+                        key = "TREE_" .. bestIndex,
+                        name = bestName,
+                        points = bestPoints,
+                        configID = configID,
+                        treeIDs = treeIDs,
+                    }
+                    activeTalentTreeScanned = true
+                    return activeTalentTreeCache.key, activeTalentTreeCache.name,
+                        activeTalentTreeCache.points, configID
+                end
+            end
             local points = 0
             for _, treeID in ipairs(treeIDs) do
                 local nodeIDs = getTreeNodes(treeID) or {}
@@ -160,6 +203,11 @@ function talents.ForEachActiveTalent(callback)
                         local talentName = definitionInfo and definitionInfo.overrideName
                         if not talentName and definitionInfo and definitionInfo.spellID and getSpellInfo then
                             talentName = getSpellInfo(definitionInfo.spellID)
+                        end
+                        if not talentName and definitionInfo and definitionInfo.spellID then
+                            local spells = rawget(_G, "C_Spell")
+                            local spellInfo = spells and spells.GetSpellInfo and spells.GetSpellInfo(definitionInfo.spellID)
+                            talentName = spellInfo and spellInfo.name
                         end
                         callback(talentName, rank)
                     end

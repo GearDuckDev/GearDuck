@@ -10,9 +10,9 @@ addon.data = {
     },
 
     STAT_ORDER = {
-        "Strength", "Agility", "Stamina", "Intellect", "Spirit", "Hit", "Crit",
+        "Strength", "Agility", "Stamina", "Intellect", "Spirit", "Hit", "Crit", "Haste", "Expertise",
         "AttackPower", "RangedAttackPower", "SpellPower", "Healing", "ManaRegen",
-        "Defense", "Dodge", "Parry", "Armor", "WeaponDPS", "WeaponSpeed", "WeaponSkill",
+        "Defense", "Dodge", "Parry", "Block", "BlockValue", "Armor", "WeaponDPS", "RangedWeaponDPS", "WeaponSpeed", "WeaponSkill",
         "WeaponCritPercent", "WeaponExtraAttackPercent",
     },
 
@@ -21,7 +21,12 @@ addon.data = {
         RangedAttackPower = "Ranged Attack Power",
         SpellPower = "Spell Power / Damage",
         ManaRegen = "Mana Regeneration",
-        WeaponDPS = "Weapon DPS",
+        WeaponDPS = "Melee Weapon DPS",
+        RangedWeaponDPS = "Ranged Weapon DPS",
+        Expertise = "Expertise %",
+        Haste = "Haste Rating",
+        Block = "Block Rating",
+        BlockValue = "Block Value",
         WeaponSpeed = "Weapon Speed Preference",
         WeaponSkill = "Weapon Skill",
         WeaponCritPercent = "Weapon-Specific Crit %",
@@ -107,6 +112,10 @@ data.STAT_KEYS = {
         "ITEM_MOD_CRIT_MELEE_RATING_SHORT",
         "ITEM_MOD_CRIT_SPELL_RATING_SHORT",
     },
+    Haste = { "ITEM_MOD_HASTE_RATING_SHORT", "ITEM_MOD_HASTE_MELEE_RATING_SHORT", "ITEM_MOD_HASTE_RANGED_RATING_SHORT", "ITEM_MOD_HASTE_SPELL_RATING_SHORT" },
+    Expertise = { "ITEM_MOD_EXPERTISE_RATING_SHORT" },
+    Block = { "ITEM_MOD_BLOCK_RATING_SHORT" },
+    BlockValue = { "ITEM_MOD_BLOCK_VALUE_SHORT" },
     AttackPower = { "ITEM_MOD_ATTACK_POWER_SHORT", "ITEM_MOD_ATTACK_POWER" },
     RangedAttackPower = { "ITEM_MOD_RANGED_ATTACK_POWER_SHORT" },
     SpellPower = { "ITEM_MOD_SPELL_POWER_SHORT", "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT" },
@@ -117,6 +126,7 @@ data.STAT_KEYS = {
     Parry = { "ITEM_MOD_PARRY_RATING_SHORT" },
     Armor = { "RESISTANCE0_NAME" },
     WeaponDPS = {},
+    RangedWeaponDPS = {},
     WeaponSpeed = {},
     WeaponSkill = {},
     WeaponCritPercent = {},
@@ -280,9 +290,9 @@ data.ACTIVITY_WEIGHT_MULTIPLIERS = {
 }
 
 data.CLASS_ACTIVITY_HIT_CAPS = {
-    QUEST = { physical = 5, spell = 3 },
-    RAID = { physical = 9, spell = 16 },
-    PVP = { physical = 5, spell = 3 },
+    QUEST = { physical = 5, spell = 4 },
+    RAID = { physical = 8, spell = 17 },
+    PVP = { physical = 5, spell = 4 },
 }
 
 data.CLASSIC_DEFAULT_WEIGHTS = {
@@ -356,19 +366,9 @@ for classFile, treeProfiles in pairs(data.CLASS_TALENT_WEIGHT_OVERRIDES) do
 end
 
 data.RACIAL_WEAPON_SKILL = {
-    Human = { [4] = 5, [5] = 5, [7] = 5, [8] = 5 },
-    Dwarf = { [3] = 5 },
-    Orc = { [0] = 5, [1] = 5, [13] = 5 },
-    Troll = { [2] = 5, [16] = 5 },
 }
 
 data.TALENT_WEAPON_EFFECTS = {
-    ["weapon expertise"] = {
-        ROGUE = { skillRanks = { 3, 5 }, subclasses = { 7, 8, 13, 15 } },
-    },
-    ["mace specialization"] = {
-        ROGUE = { skillPerRank = 1, subclasses = { 4, 5 } },
-    },
     ["axe specialization"] = {
         WARRIOR = { critPerRank = 1, subclasses = { 0, 1 } },
     },
@@ -402,14 +402,13 @@ data.HIT_TALENT_EFFECTS = {
     precision = {
         WARRIOR = { physicalPerRank = 1, maxRanks = 3 },
         PALADIN = { physicalPerRank = 1, spellPerRank = 1, maxRanks = 3 },
-        ROGUE = { physicalPerRank = 1, maxRanks = 5 },
+        ROGUE = { physicalPerRank = 1, maxRanks = 3 },
+        MAGE = { spellPerRank = 2, maxRanks = 3 },
     },
     surefooted = { HUNTER = { physicalPerRank = 1, maxRanks = 3 } },
-    ["arcane focus"] = { MAGE = { spellPerRank = 2, maxRanks = 5 } },
-    ["shadow focus"] = { PRIEST = { spellPerRank = 2, maxRanks = 5 } },
-    suppression = { WARLOCK = { spellPerRank = 2, maxRanks = 5 } },
-    ["balance of power"] = { DRUID = { spellPerRank = 2, maxRanks = 2 } },
-    ["elemental precision"] = { SHAMAN = { spellPerRank = 2, maxRanks = 3 }, MAGE = { spellPerRank = 1, maxRanks = 3 } },
+    ["shadow focus"] = { PRIEST = { spellPerRank = 1, maxRanks = 5 } },
+    suppression = { WARLOCK = { spellPerRank = 1, maxRanks = 5 } },
+    ["nature's reach"] = { DRUID = { physicalPerRank = 2, spellPerRank = 2, maxRanks = 2 } },
     ["nature's guidance"] = { SHAMAN = { physicalPerRank = 1, spellPerRank = 1, maxRanks = 3 } },
 }
 

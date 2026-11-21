@@ -71,7 +71,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
 
         local _, playerClassFile = UnitClass("player")
         local selectedClassFile = CLASS_ACTIVITY_DEFAULTS[playerClassFile] and playerClassFile or "ROGUE"
-        local activeTreeKey = talents.GetActiveTalentTree()
+        local activeTreeKey = profiles.GetActiveProfileTree(gearDuckDB, playerClassFile)
         local selectedTreeKey = selectedClassFile == playerClassFile and activeTreeKey or nil
         local selectedActivityKey = gearDuckDB.hitCapContext
         if not CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey] then
@@ -93,6 +93,11 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
             end
             local treeNames = CLASS_TALENT_TREE_NAMES[selectedClassFile]
             local treeName = treeNames and selectedTreeKey and treeNames[selectedTreeKey]
+            if selectedTreeKey == "FERAL_CAT" then
+                treeName = "Feral Cat"
+            elseif selectedTreeKey == "FERAL_BEAR" then
+                treeName = "Feral Bear"
+            end
             if treeName then
                 treeHelpText:SetText("Active tree: " .. treeName
                     .. ". Starter weights are estimates; hit caps subtract recognized talent bonuses, not buffs.")
@@ -107,6 +112,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
         local spellHitCapEditBox
         local activityDropdown
         local scrollFrame
+        local RefreshFeralButton
         local refreshPanelOnUpdate = false
 
         local function FormatWeight(value)
@@ -194,11 +200,12 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
                 info.func = function()
                     CommitEditBoxes()
                     selectedClassFile = classInfo.file
-                    local activeKey = talents.GetActiveTalentTree()
+                    local activeKey = profiles.GetActiveProfileTree(gearDuckDB, playerClassFile)
                     selectedTreeKey = classInfo.file == playerClassFile and activeKey or nil
                     UIDropDownMenu_SetSelectedValue(dropdown, selectedClassFile)
                     RefreshEditBoxes()
                     RefreshTreeHelpText()
+                    RefreshFeralButton()
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
@@ -348,6 +355,25 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
         treeHelpText = helpText
         RefreshTreeHelpText()
 
+        local feralButton = CreateFrame("Button", "GearDuckFeralRoleButton", panel, "UIPanelButtonTemplate")
+        feralButton:SetSize(150, 24)
+        feralButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 460, -175)
+        RefreshFeralButton = function()
+            feralButton:SetText("Feral: " .. (gearDuckDB.feralRole == "BEAR" and "Bear" or "Cat"))
+            feralButton:SetShown(selectedClassFile == playerClassFile
+                and (selectedTreeKey == "FERAL_CAT" or selectedTreeKey == "FERAL_BEAR"))
+        end
+        feralButton:SetScript("OnClick", function()
+            CommitEditBoxes()
+            gearDuckDB.feralRole = gearDuckDB.feralRole == "BEAR" and "CAT" or "BEAR"
+            selectedTreeKey = profiles.GetActiveProfileTree(gearDuckDB, playerClassFile)
+            invalidateEvaluationCache()
+            RefreshEditBoxes()
+            RefreshTreeHelpText()
+            RefreshFeralButton()
+        end)
+        RefreshFeralButton()
+
         scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
         scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -206)
         scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -34, 18)
@@ -407,7 +433,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
                 end
                 playerClassFile = currentClassFile
             end
-            local activeKey = talents.GetActiveTalentTree()
+            local activeKey = profiles.GetActiveProfileTree(gearDuckDB, playerClassFile)
             selectedTreeKey = selectedClassFile == playerClassFile and activeKey or nil
             selectedActivityKey = gearDuckDB.hitCapContext
             if not CLASS_ACTIVITY_DEFAULTS[selectedClassFile][selectedActivityKey] then
@@ -433,6 +459,7 @@ function options.Create(gearDuckDB, gearDuckWeightsDB, invalidateEvaluationCache
 
             RefreshEditBoxes()
             RefreshTreeHelpText()
+            RefreshFeralButton()
         end
         panel.RefreshGearDuckOptions = RefreshOptionsPanel
 

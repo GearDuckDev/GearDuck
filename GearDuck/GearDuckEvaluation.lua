@@ -29,7 +29,7 @@ function evaluation.Create(database, weightDatabase)
         end
 
         if classFile and CLASS_ACTIVITY_DEFAULTS[classFile] then
-            local treeKey, treeName, treePoints = talents.GetActiveTalentTree()
+            local treeKey, treeName, treePoints = profiles.GetActiveProfileTree(gearDuckDB, classFile)
             local profile = profiles.GetTalentWeightProfile(
                 gearDuckWeightsDB,
                 classFile,
@@ -52,12 +52,17 @@ function evaluation.Create(database, weightDatabase)
         local setBonuses = {}
         local equippedHit = 0
         local allEquippedLoaded = true
+        local extraStatsPending = false
         for slot = 1, 19 do
             local equippedLink = GetInventoryItemLink("player", slot)
             equippedLinks[slot] = equippedLink
             if equippedLink then
                 if not items.IsItemInfoLoaded(equippedLink) then
                     allEquippedLoaded = false
+                end
+                if not items.GetExtraStats(equippedLink) then
+                    allEquippedLoaded = false
+                    extraStatsPending = true
                 end
                 equippedHit = equippedHit + (hit.GetItemHitPercent(equippedLink) or 0)
                 local _, setID = items.GetItemMetadata(equippedLink)
@@ -83,6 +88,7 @@ function evaluation.Create(database, weightDatabase)
         end
         local state = {
             allEquippedLoaded = allEquippedLoaded,
+            extraStatsPending = extraStatsPending,
             equippedLinks = equippedLinks,
             setCounts = setCounts,
             setBonuses = setBonuses,
@@ -130,6 +136,29 @@ function evaluation.Create(database, weightDatabase)
         return equippedItem
     end
 
+    local function GetLoadoutWeaponSkillScore(links, weight)
+        if weight == 0 then return 0 end
+        local weaponTypes = {}
+        for slot = 16, 18 do
+            local classID, subclass = equipment.GetItemClassInfo(links[slot])
+            if classID == 2 and subclass then
+                weaponTypes[subclass] = true
+            end
+        end
+        local skill = 0
+        for slot = 1, 19 do
+            local extra = items.GetExtraStats(links[slot])
+            if extra then
+                for subclass, amount in pairs(extra.skills) do
+                    if weaponTypes[subclass] then
+                        skill = skill + amount
+                    end
+                end
+            end
+        end
+        return skill * weight
+    end
+
     local function CacheAndReturnNil(itemLink)
         if items.IsItemInfoLoaded(itemLink) then
             evaluationCache[itemLink] = false
@@ -161,11 +190,14 @@ function evaluation.Create(database, weightDatabase)
         local itemID, itemSetID = items.GetItemMetadata(itemLink)
         local rawItemStats = items.GetItemStats(itemLink)
         local weaponData = itemClassID == 2 and items.GetWeaponData(itemLink) or nil
+        local extraStats = items.GetExtraStats(itemLink)
         if next(rawItemStats) == nil
             and not weaponData
             and not itemSetID
+            and not (extraStats and (extraStats.expertise ~= 0 or next(extraStats.skills)))
             and not (itemID and gearDuckDB.itemBonuses[itemID]) then
             -- Decorative items such as tabards have nothing to compare.
+            if not extraStats then return nil end
             return CacheAndReturnNil(itemLink)
         end
 
@@ -174,6 +206,8 @@ function evaluation.Create(database, weightDatabase)
         local isEnchantedWeapon = itemClassID == 2 and enchantID ~= nil
 
         local equippedState = GetEquippedState()
+        local extraStatsPending = not extraStats or equippedState.extraStatsPending
+            or (isEnchantedWeapon and not items.GetExtraStats(unenchantedLink))
         local setCounts = equippedState.setCounts
         local setBonuses = {}
         for setID, bonuses in pairs(equippedState.setBonuses) do
@@ -261,6 +295,7 @@ function evaluation.Create(database, weightDatabase)
                         end
                         slotComparisons[#slotComparisons + 1] = {
                             label = EQUIP_SLOT_LABELS[slot] or ("Slot " .. slot),
+                            slot = slot,
                             equippedScore = equippedScore,
                             replacedItems = replacedItems,
                         }
@@ -273,6 +308,7 @@ function evaluation.Create(database, weightDatabase)
                     end
                     slotComparisons[1] = {
                         label = "Both Hands",
+                        slot = 16,
                         equippedScore = equippedScore,
                         replacedItems = contextEquipped,
                     }
@@ -297,6 +333,8 @@ function evaluation.Create(database, weightDatabase)
 
                 local cappedCurrentEquippedHit = math.min(hitCap, math.max(0, equippedHit))
                 local hitWeight = classWeights.Hit or 0
+                local skillWeight = classWeights.WeaponSkill or 0
+                local equippedSkillScore = GetLoadoutWeaponSkillScore(equippedState.equippedLinks, skillWeight)
                 for _, slotComparison in ipairs(slotComparisons) do
                     local comparison = {
                         profileKey = context.key,
@@ -327,15 +365,29 @@ function evaluation.Create(database, weightDatabase)
                     local cappedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + itemHitPercent + setHitDelta))
                         - cappedCurrentEquippedHit
                     comparison.hitAdjustment = (cappedHitDelta - (itemHitPercent - replacementHit)) * hitWeight
+                    local proposedLinks = {}
+                    for slot, link in pairs(equippedState.equippedLinks) do
+                        proposedLinks[slot] = link
+                    end
+                    for _, replacedItem in ipairs(comparison.replacedItems) do
+                        proposedLinks[replacedItem.slot] = nil
+                    end
+                    proposedLinks[slotComparison.slot] = itemLink
+                    comparison.weaponSkillAdjustment = GetLoadoutWeaponSkillScore(proposedLinks, skillWeight)
+                        - equippedSkillScore
                     comparison.delta = currentItemScore - comparison.equippedScore
                         + comparison.hitAdjustment
                         + setBonusDelta
+                        + comparison.weaponSkillAdjustment
                     if isEnchantedWeapon then
                         local cappedUnenchantedHitDelta = math.min(hitCap, math.max(0, equippedHit - replacementHit + unenchantedHitPercent + setHitDelta))
                             - cappedCurrentEquippedHit
                         comparison.deltaWithoutEnchant = currentItemScoreWithoutEnchant - comparison.equippedScore
                             + (cappedUnenchantedHitDelta - (unenchantedHitPercent - replacementHit)) * hitWeight
                             + setBonusDelta
+                        proposedLinks[slotComparison.slot] = unenchantedLink
+                        comparison.deltaWithoutEnchant = comparison.deltaWithoutEnchant
+                            + GetLoadoutWeaponSkillScore(proposedLinks, skillWeight) - equippedSkillScore
                     end
                     comparisons[#comparisons + 1] = comparison
                 end
@@ -363,9 +415,10 @@ function evaluation.Create(database, weightDatabase)
             comparisons = comparisons,
             hasUnscoredSetBonus = hasUnscoredSetBonus,
             setBonusDataPending = setBonusDataPending,
+            extraStatsPending = extraStatsPending,
         }
         local getItemInfo = (C_Item and rawget(C_Item, "GetItemInfo")) or rawget(_G, "GetItemInfo")
-        if canEquip ~= nil and not setBonusDataPending
+        if canEquip ~= nil and not extraStatsPending and not setBonusDataPending
             and equippedState.allEquippedLoaded and (not getItemInfo or getItemInfo(itemLink)) then
             evaluationCache[itemLink] = evaluationResult
         end

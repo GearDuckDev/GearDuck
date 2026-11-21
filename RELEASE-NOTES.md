@@ -1,33 +1,26 @@
-# GearDuck 1.1.0-release
+# GearDuck 1.2.0-release
 
-## Set-aware gear comparisons
+## WoW: Forever stat profiles
 
-- Automatically reads supported unconditional set-bonus stats from item
-  tooltips, with no item-specific bonus entries.
-- Adds a bonus only when a swap activates its piece-count threshold, and
-  subtracts it when replacing equipped gear breaks that threshold.
-- Uses each Questing, Raid, and PvP profile's weights and caps set Hit
-  together with the rest of the loadout.
-- Remembers learned thresholds across reloads, allowing active green
-  `Set: ...` lines to be scored even when they hide their piece counts.
-- Preserves manual `/gd setbonus` values as full overrides at their
-  thresholds. Clearing an override restores supported automatic scoring.
-- Flags unsupported effects and incomplete set data, with details available
-  through `/gd debug`.
-- Expands Lua 5.1 regression coverage to 436 assertions, including negative
-  item stats, set activation/loss, overrides, and reverse comparisons.
-
-## First use with an active set
-
-If a set is already active when GearDuck first encounters it, briefly unequip
-enough pieces to make its bonuses gray, hover a set item, then re-equip.
-GearDuck learns the numbered thresholds and saves them for future comparisons.
-
-Conditional effects, procs, and other unsupported bonuses still require a
-manual value. Existing custom weights and manual values are preserved.
+- Adds editable starter profiles for all class talent trees across Questing,
+  PvP, and Raid, with a choice between Feral Cat and Feral Bear.
+- Adds separate melee and ranged weapon DPS weights, including weapon DPS for
+  Feral profiles and ranged DPS for Hunter profiles.
+- Adds Expertise, Haste, Block, and Block Value weights. Expertise recognizes
+  supported tooltip percentages and item rating; recognized weapon-skill
+  bonuses are evaluated against the equipped weapon types.
+- Updates Hit rating conversion and selected talent and trait detection for
+  WoW: Forever. Supported new set-bonus stats are included in comparisons.
+- Preserves existing numeric weights and hit caps. Newly added weight fields
+  receive defaults when absent; review ranged DPS if you customized the old
+  shared weapon DPS weight. Restore defaults also resets the selected
+  class/activity's hit caps.
 
 Power Level is a configurable estimate, not a DPS simulation. Starter weights
-are broad level-60 Classic-style baselines and can be customized in game.
+are unvalidated estimates. Expertise is uncapped, and tooltip wording,
+weapon-skill bonuses, set effects, and talent detection have limitations.
+Live WoW-client validation is still needed. See [README.md](README.md) for
+details.
 
 ## Compatibility and installation
 

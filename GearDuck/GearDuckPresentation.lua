@@ -106,13 +106,14 @@ function presentation.PrintDebug(evaluation)
 
     for _, comparison in ipairs(evaluation.comparisons) do
         Print(string.format(
-            "%s PL vs %s: %s - %s + %s hit adjustment + %s set bonus = %s",
+            "%s PL vs %s: %s - %s + %s hit adjustment + %s set bonus + %s weapon skill = %s",
             comparison.profileName,
             comparison.label,
             presentation.FormatScore(comparison.itemScore),
             presentation.FormatScore(comparison.equippedScore),
             presentation.FormatScore(comparison.hitAdjustment or 0),
             presentation.FormatScore(comparison.setBonusDelta or 0),
+            presentation.FormatScore(comparison.weaponSkillAdjustment or 0),
             presentation.FormatScore(comparison.delta)
         ))
         for _, bonus in ipairs(comparison.unscoredSetBonuses or {}) do
@@ -124,5 +125,8 @@ function presentation.PrintDebug(evaluation)
     end
     if evaluation.setBonusDataPending then
         Print("Set bonus data is incomplete. Active Set: lines hide their piece counts. Unequip enough set pieces and hover a set item to learn its numbered bonuses; then re-equip. Missing tooltip data will also be retried.")
+    end
+    if evaluation.extraStatsPending then
+        Print("Item tooltip stats are incomplete; expertise and weapon skill may be missing. The comparison will be retried.")
     end
 end

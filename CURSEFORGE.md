@@ -7,7 +7,7 @@ compares it with your equipped gear, helping you spot an **Upgrade**,
 **Sidegrade**, or **Downgrade** at a glance. It automatically detects your class
 and active talent tree, then uses independent Questing, Raid, and PvP profiles.
 
-Version **1.1.0-release**, built for **WoW: Forever Beta 1.60.1**
+Version **1.2.0-release**, built for **WoW: Forever Beta 1.60.1**
 (`Interface: 16001`) by **GearDuckDev**.
 
 ***
@@ -30,8 +30,8 @@ Version **1.1.0-release**, built for **WoW: Forever Beta 1.60.1**
   training, level-40 armor unlocks, and the Shaman two-handed weapon talent.
   Item-specific class restrictions are also checked, such as Shaman-only gear.
   Items you cannot equip show `Cannot Use` and never receive upgrade arrows.
-- **Weapon calculations:** accounts for supported racial weapon skills,
-  weapon-specific talent effects, weapon DPS and speed, and separate weapon
+- **Weapon calculations:** accounts for supported weapon-specific talent
+  effects, weapon DPS and speed, and separate weapon
   comparisons with and without enchants.
 - **Set-aware upgrades:** scores supported stat bonuses only when equipping an
   item activates a set threshold or replacing it breaks one. Uses each
@@ -41,9 +41,12 @@ Version **1.1.0-release**, built for **WoW: Forever Beta 1.60.1**
   `/gd setup`.
 
 Power Level is a configurable comparison score, **not a DPS simulation**.
-Starter weights are broad level-60 Classic-style estimates, not exact rankings.
-Gear, role, encounter, talents, and playstyle can change what is best; treat
-defaults as a baseline and customize them for your character.
+Starter weights are unvalidated estimates, not exact rankings. Melee and ranged
+weapon DPS have separate weights. Expertise is scored per percentage point
+without a cap, and recognized weapon-skill bonuses depend on equipped weapon
+types. Gear, role, encounter, talents, and playstyle change what is best;
+customize the defaults for your character. Existing numeric weights are kept;
+review the new ranged DPS weight if you customized the old shared weight.
 
 ***
 
@@ -58,6 +61,7 @@ Use `/gd options` or open **Options > AddOns > GearDuck**.
   weapons.
 - **Activity profiles:** show any combination of Questing, Raid, and PvP
   comparisons, each with its own class/talent-tree weights.
+- **Feral role:** select Cat or Bear in the options panel when playing Feral.
 - **Hit caps:** configure separate physical and spell hit caps for each
   activity. Recognized talent hit bonuses and applicable dual-wielding caps are
   accounted for.

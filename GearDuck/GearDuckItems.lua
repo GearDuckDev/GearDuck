@@ -7,11 +7,13 @@ local data = addon.data
 local formatPatternCache = {}
 local weaponDataCache = {}
 local unenchantedLinkCache = {}
+local extraStatsCache = {}
 local MAIN_HAND_ONLY_SLOTS = { 16 }
 
 function items.ClearCache()
     wipe(weaponDataCache)
     wipe(unenchantedLinkCache)
+    wipe(extraStatsCache)
 end
 
 function items.IsItemInfoLoaded(itemLink)
@@ -158,6 +160,7 @@ function items.GetSetBonusLine(text)
     if type(text) ~= "string" then
         return nil
     end
+
     local normalized = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):match("^%s*(.-)%s*$")
     local formats = {
         rawget(_G, "ITEM_SET_BONUS_GRAY") or "(%d) Set: %s",
@@ -177,6 +180,44 @@ function items.GetSetBonusLine(text)
         return nil, activeValues[1]
     end
     return nil
+end
+
+local skillNames = {}
+for subclass, name in pairs(data.WEAPON_SUBCLASS_NAMES) do
+    skillNames[string.lower(name)] = subclass
+end
+
+-- Only unconditional, exact English tooltip effects are recognized.
+function items.GetExtraStats(itemLink)
+    if not itemLink then return nil end
+    if extraStatsCache[itemLink] then return extraStatsCache[itemLink] end
+    local getHyperlink = C_TooltipInfo and rawget(C_TooltipInfo, "GetHyperlink")
+    local tooltip = getHyperlink and getHyperlink(itemLink)
+    if not tooltip or type(tooltip.lines) ~= "table" or #tooltip.lines == 0 then
+        return nil
+    end
+    local result = { expertise = 0, skills = {} }
+    for _, line in ipairs(tooltip.lines) do
+        local text = line.leftText
+        if type(text) == "string" and not select(2, items.GetSetBonusLine(text)) then
+            text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):lower()
+                :gsub("^%s*equip:%s*", ""):match("^%s*(.-)%s*$"):gsub("%.$", "")
+            local amount = tonumber(text:match("^reduces the chance for your attacks to be dodged or parried by ([%d%.]+)%%$")
+                or text:match("^reduces the chance for your melee attacks to be dodged or parried by ([%d%.]+)%%$"))
+            if amount then result.expertise = result.expertise + amount end
+            local name, skill = text:match("^increased (.-) %+([%d%.]+)$")
+            if not name then
+                name, skill = text:match("^increases your skill with (.-) by ([%d%.]+)$")
+            end
+            local subclass = name and skillNames[name]
+            skill = tonumber(skill)
+            if subclass and skill then
+                result.skills[subclass] = (result.skills[subclass] or 0) + skill
+            end
+        end
+    end
+    if items.IsItemInfoLoaded(itemLink) then extraStatsCache[itemLink] = result end
+    return result
 end
 
 function items.GetWeaponData(itemLink)

@@ -8,6 +8,7 @@ local data = addon.data
 local hitTalentBonusesCache
 local itemHitPercentCache = {}
 local hitTooltipScanner
+local warnedRatingFallback = false
 
 function hit.IsScannerTooltip(tooltip)
     return tooltip ~= nil and tooltip == hitTooltipScanner
@@ -19,6 +20,23 @@ end
 
 function hit.ResetTalentCache()
     hitTalentBonusesCache = nil
+end
+
+function hit.RatingToPercent(rating)
+    local convert = rawget(_G, "GetCombatRatingBonusForCombatRatingValue")
+    if convert then
+        local result = convert(rawget(_G, "CR_HIT_MELEE") or 6, rating)
+        if type(result) == "number" then
+            return result
+        end
+    end
+    if rating ~= 0 and not warnedRatingFallback then
+        warnedRatingFallback = true
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ccffGearDuck:|r Hit rating conversion unavailable; using the level-60 estimate of 10 rating per 1%.")
+        end
+    end
+    return rating / 10
 end
 
 local function ParseHitLine(text)
@@ -35,7 +53,13 @@ local function ParseHitLine(text)
         or normalized:match("^%+([%d%.]+)%%%s*hit")
         or normalized:match("^%+([%d%.]+)%%%s*spell hit")
         or normalized:match("^hit%s*%+([%d%.]+)%%")
-    return amount and tonumber(amount) or nil
+    if amount then
+        return tonumber(amount), nil
+    end
+    local rating = normalized:match("increases your hit by%s+([%d%.]+)%s*%.?$")
+        or normalized:match("increases hit by%s+([%d%.]+)%s*%.?$")
+        or normalized:match("^%+([%d%.]+)%s+hit%s*$")
+    return nil, rating and tonumber(rating) or nil
 end
 
 function hit.GetItemHitPercent(itemLink)
@@ -47,6 +71,7 @@ function hit.GetItemHitPercent(itemLink)
     end
 
     local totalHit = 0
+    local totalRating = 0
     local scannedTooltip = false
     local getHyperlink = C_TooltipInfo and rawget(C_TooltipInfo, "GetHyperlink")
     if getHyperlink then
@@ -54,10 +79,11 @@ function hit.GetItemHitPercent(itemLink)
         if tooltipData and type(tooltipData.lines) == "table" and #tooltipData.lines > 0 then
             scannedTooltip = true
             for _, line in ipairs(tooltipData.lines) do
-                local amount = ParseHitLine(line.leftText)
+                local amount, rating = ParseHitLine(line.leftText)
                 if amount then
                     totalHit = totalHit + amount
                 end
+                totalRating = totalRating + (rating or 0)
             end
         end
     end
@@ -73,20 +99,22 @@ function hit.GetItemHitPercent(itemLink)
         for lineIndex = 1, hitTooltipScanner:NumLines() do
             local line = _G["GearDuckHitTooltipScannerTextLeft" .. lineIndex]
             local text = line and line:GetText()
-            local amount = ParseHitLine(text)
+            local amount, rating = ParseHitLine(text)
             if amount then
                 totalHit = totalHit + amount
             end
+            totalRating = totalRating + (rating or 0)
         end
         hitTooltipScanner:Hide()
     end
 
-    if totalHit <= 0 and addon.items and addon.items.GetItemStats then
+    if totalHit == 0 and totalRating == 0 and addon.items and addon.items.GetItemStats then
         local stats = addon.items.GetItemStats(itemLink)
         for _, key in ipairs(data.STAT_KEYS.Hit) do
-            totalHit = totalHit + (tonumber(stats[key]) or 0)
+            totalRating = totalRating + (tonumber(stats[key]) or 0)
         end
     end
+    totalHit = totalHit + hit.RatingToPercent(totalRating)
 
     if totalHit > 0 then
         itemHitPercentCache[itemLink] = totalHit

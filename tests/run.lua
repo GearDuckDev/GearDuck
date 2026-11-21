@@ -108,6 +108,7 @@ end
 local addon = {}
 local moduleFiles = {
     "GearDuckData.lua",
+    "GearDuckPresetWeights.lua",
     "GearDuckItems.lua",
     "GearDuckSets.lua",
     "GearDuckProfiles.lua",
@@ -170,10 +171,10 @@ end
 
 local armsWeights = addon.profiles.GetTalentWeightProfile(weightDatabase, "WARRIOR", "QUEST", "TREE_1")
 local protectionWeights = addon.profiles.GetTalentWeightProfile(weightDatabase, "WARRIOR", "QUEST", "TREE_3")
-equal(armsWeights.Strength, 2.2, "arms tree starter weights")
-equal(protectionWeights.Defense, 1.2, "protection tree starter weights")
+equal(armsWeights.Strength, 2, "arms tree starter weights")
+equal(protectionWeights.Defense, 1, "protection tree starter weights")
 local raidArmsWeights = addon.profiles.GetTalentWeightProfile(weightDatabase, "WARRIOR", "RAID", "TREE_1")
-equal(raidArmsWeights.Hit, 1.4 * 1.1, "tree starter weights vary by activity")
+equal(raidArmsWeights.Hit, 28, "tree starter weights vary by activity")
 armsWeights.Strength = 7
 addon.profiles.EnsureActivityWeightProfiles(database, weightDatabase)
 equal(
@@ -208,9 +209,9 @@ addon.profiles.EnsureActivityWeightProfiles(
     { weights = {}, talentWeights = {}, hitCaps = {} },
     oldWeightDatabase
 )
-equal(oldClassProfile.Hit, 1.3 * 1.1, "old activity defaults updated")
+equal(oldClassProfile.Hit, 1.3, "old activity weight preserved")
 equal(oldClassProfile.Strength, 8, "custom class weight preserved during migration")
-equal(oldTreeProfile.Hit, 1.4, "old tree defaults updated")
+equal(oldTreeProfile.Hit, 1.3, "old tree weight preserved")
 equal(oldTreeProfile.Strength, 9, "custom tree weight preserved during migration")
 oldTreeProfile.Hit = 1.3
 addon.profiles.EnsureActivityWeightProfiles(
@@ -218,6 +219,64 @@ addon.profiles.EnsureActivityWeightProfiles(
     oldWeightDatabase
 )
 equal(oldTreeProfile.Hit, 1.3, "migrated custom weights are preserved on later loads")
+
+do
+    local oldClassName, oldClassFile = currentClassName, currentClassFile
+    currentClassName, currentClassFile = "Druid", "DRUID"
+    C_ClassTalents = { GetActiveConfigID = function() return 7 end }
+    C_Traits = {
+        GetConfigInfo = function() return { treeIDs = { 1117 } } end,
+        GetTreeNodes = function() return { 1 } end,
+        GetNodeInfo = function() return { activeEntry = { entryID = 5, rank = 1 } } end,
+        GetGroupDisplayInfoByTreeID = function()
+            return {
+                { groupID = 30, orderIndex = 3, displayName = "Restoration" },
+                { groupID = 10, orderIndex = 1, displayName = "Balance" },
+                { groupID = 20, orderIndex = 2, displayName = "Feral Combat" },
+            }
+        end,
+        GetGroupCurrencyInfo = function()
+            return {
+                { traitNodeGroupID = 10, currencyInfos = { { spent = 2 } } },
+                { traitNodeGroupID = 20, currencyInfos = { { spent = 8 } } },
+            }
+        end,
+        GetEntryInfo = function() return { definitionID = 6 } end,
+        GetDefinitionInfo = function() return { spellID = 12 } end,
+    }
+    C_Spell = { GetSpellInfo = function() return { name = "Nature's Reach" } end }
+    addon.talents.ResetActiveTalentTreeCache()
+    local treeKey, treeName, points = addon.talents.GetActiveTalentTree()
+    equal(treeKey, "TREE_2", "Forever trait group selects highest-spent talent tree")
+    equal(treeName, "Feral Combat", "Forever trait group supplies tree name")
+    equal(points, 8, "Forever trait group supplies tree points")
+    local scannedName
+    addon.talents.ForEachActiveTalent(function(name) scannedName = name end)
+    equal(scannedName, "Nature's Reach", "Forever C_Spell talent name is read")
+    local feralDB = addon.profiles.NormalizeDatabase({}, true)
+    equal(addon.profiles.GetActiveProfileTree(feralDB, "DRUID"), "FERAL_CAT", "feral defaults to cat")
+    feralDB.feralRole = "BEAR"
+    equal(addon.profiles.GetActiveProfileTree(feralDB, "DRUID"), "FERAL_BEAR", "feral role chooses bear")
+    local feralWeights = addon.profiles.EnsureActivityWeightProfiles(feralDB, {})
+    local activity = feralWeights.profiles.DRUID.QUEST
+    activity.talentWeights.TRAIT_1117 = { Strength = 9 }
+    equal(addon.profiles.GetTalentWeightProfile(feralWeights, "DRUID", "QUEST", "FERAL_BEAR").Strength,
+        9, "old Forever trait profile is copied into selected tree")
+    equal(activity.talentWeights.TRAIT_1117.Strength, 9, "old trait profile remains intact")
+    activity.talentWeights.TREE_2 = { Strength = 7 }
+    local catWeights = addon.profiles.GetTalentWeightProfile(feralWeights, "DRUID", "QUEST", "FERAL_CAT")
+    equal(catWeights.Strength, 7, "old Feral profile is preserved in Cat")
+    equal(addon.profiles.GetTalentWeightProfile(feralWeights, "DRUID", "QUEST", "FERAL_BEAR").Strength,
+        9, "switching roles does not overwrite existing Bear weights")
+    catWeights.Strength = 3
+    equal(activity.talentWeights.TREE_2.Strength, 7, "Feral roles use independent copies")
+    catWeights.WeaponDPS = 0
+    addon.profiles.EnsureActivityWeightProfiles(feralDB, feralWeights)
+    equal(catWeights.WeaponDPS, 0, "existing Feral weapon-DPS weights are preserved")
+    currentClassName, currentClassFile = oldClassName, oldClassFile
+    C_ClassTalents, C_Traits, C_Spell = nil, nil, nil
+    addon.talents.ResetActiveTalentTreeCache()
+end
 
 database.itemBonuses[1] = 2
 local score = addon.scoring.ScoreItem(database, "item:1", { Strength = 1 })
@@ -237,6 +296,11 @@ local negativeStatScore, negativeStatBreakdown = addon.scoring.ScoreItem(
 equal(negativeStatScore, -3, "negative item stats reduce the weighted score")
 equal(negativeStatBreakdown.Spirit.amount, -3, "negative item stat amount is preserved")
 equal(negativeStatBreakdown.Spirit.contribution, -6, "negative item stat contribution is preserved")
+do
+    local spellScore = addon.scoring.ScoreItem(database, "item:20", { SpellPower = 2, Healing = 3 },
+        { ITEM_MOD_SPELL_POWER_SHORT = 10, ITEM_MOD_SPELL_HEALING_DONE_SHORT = 4 })
+    equal(spellScore, 62, "general spell power contributes to damage and healing weights")
+end
 
 database.setBonuses[99] = { [2] = 20 }
 equal(
@@ -244,6 +308,16 @@ equal(
     20,
     "set bonus threshold crossing"
 )
+do
+    local setDB = { setBonuses = {} }
+    local bonuses = { [88] = { [2] = { stats = { Crit = 1, SpellPower = 10 } } } }
+    GetCombatRatingBonusForCombatRatingValue = function() return .1 end
+    local setScore = addon.sets.GetSetBonusDelta(
+        setDB, 88, {}, { [88] = 1 }, { Crit = 2, SpellPower = 3, Healing = 4 }, bonuses
+    )
+    equal(setScore, 90, "set percent crit uses rating units and spell power includes healing")
+    GetCombatRatingBonusForCombatRatingValue = nil
+end
 
 database.displayContexts = { QUEST = true, RAID = false, PVP = false }
 database.itemBonuses[1] = nil
@@ -309,6 +383,19 @@ local weaponData = addon.items.GetWeaponData("item:6")
 equal(weaponData ~= nil, true, "weapon data parsed when speed is in rightText")
 equal(weaponData.dps, 20, "weapon DPS calculated from min/max and rightText speed")
 equal(weaponData.speed, 2.5, "weapon speed parsed from rightText")
+do
+    local expected = {
+        FERAL_CAT = { QUEST = 180, PVP = 280, RAID = 300 },
+        FERAL_BEAR = { QUEST = 110, PVP = 140, RAID = 120 },
+    }
+    for role, contexts in pairs(expected) do
+        for context, expectedScore in pairs(contexts) do
+            local weights = addon.profiles.EnsureWeightProfile(nil, addon.data.CLASS_TALENT_DEFAULTS.DRUID[context][role])
+            local weaponScore = addon.scoring.ScoreItem(database, "item:6", weights)
+            equal(weaponScore, expectedScore, role .. " " .. context .. " weapon DPS score")
+        end
+    end
+end
 local whiteWeaponEval = evaluateItem("item:6")
 equal(whiteWeaponEval ~= nil, true, "white weapon with no primary stats is still evaluated")
 
@@ -321,6 +408,21 @@ tooltipLinesByItemID[7] = {
     { leftText = "+1% Hit" },
 }
 equal(addon.hit.GetItemHitPercent("item:7"), 3, "spell hit and enchant hit are parsed after item loads")
+do
+    GetCombatRatingBonusForCombatRatingValue = function(_, rating) return rating / 5 end
+    addon.hit.ClearItemCache()
+    tooltipLinesByItemID[7] = {
+        { leftText = "Equip: Increases your hit by 10." },
+        { leftText = "+1% Hit" },
+    }
+    equal(addon.hit.GetItemHitPercent("item:7"), 3, "rating and flat enchant hit use player-level conversion")
+    addon.hit.ClearItemCache()
+    tooltipLinesByItemID[7] = { { leftText = "Test item" } }
+    itemData[7].stats.ITEM_MOD_HIT_RATING_SHORT = 10
+    equal(addon.hit.GetItemHitPercent("item:7"), 2, "item API hit rating uses player-level conversion")
+    GetCombatRatingBonusForCombatRatingValue = nil
+    addon.hit.ClearItemCache()
+end
 
 -- Dual-wield slot filtering and off-hand weapon eligibility
 itemData[8] = { equipLocation = "INVTYPE_WEAPON", classID = 2, subclassID = 15, stats = { ITEM_MOD_INTELLECT_SHORT = 10 } }
@@ -417,16 +519,16 @@ equal(shieldEval.comparisons[1].delta, -40, "off-hand shield accounts for unequi
 equippedBySlot[16] = nil
 
 -- Rogue Precision maxRanks and hybrid effective hit cap
-equal(addon.data.HIT_TALENT_EFFECTS.precision.ROGUE.maxRanks, 5, "rogue precision supports 5 ranks")
+equal(addon.data.HIT_TALENT_EFFECTS.precision.ROGUE.maxRanks, 3, "rogue precision supports 3 ranks")
 local paladinRaidProfile = addon.data.CLASS_ACTIVITY_DEFAULTS.PALADIN.RAID
 equal(
     addon.hit.GetEffectiveHitCap("PALADIN", "RAID", paladinRaidProfile, false, { Strength = 2, AttackPower = 1, SpellPower = 0.4 }),
-    9,
+    8,
     "physical hybrid build uses physical raid hit cap"
 )
 equal(
     addon.hit.GetEffectiveHitCap("PALADIN", "RAID", paladinRaidProfile, false, { Strength = 0.6, SpellPower = 1.2, Healing = 1.4 }),
-    16,
+    17,
     "caster hybrid build uses spell raid hit cap"
 )
 
@@ -741,6 +843,8 @@ local function NewOptionsWidget()
         widget[method] = function() end
     end
     widget.SetText = function(self, text) self.text = text end
+    widget.GetText = function(self) return self.text end
+    widget.SetShown = function(self, shown) self.shown = shown end
     widget.SetChecked = function(self, checked) self.checked = checked end
     widget.SetScript = function(self, script, callback) self[script] = callback end
     widget.CreateFontString = NewOptionsWidget
@@ -791,6 +895,32 @@ dbA.upgradeArrowPosition = "BOTTOMLEFT"
 panel.SetGearDuckDatabases(dbA, weightsA)
 equal(positionDropdown.selectedValue, "BOTTOMLEFT", "character switch refreshes the position dropdown")
 equal(positionDropdown.text, "Bottom left", "character switch refreshes the position label")
+do
+    currentClassName, currentClassFile = "Druid", "DRUID"
+    C_ClassTalents = { GetActiveConfigID = function() return 7 end }
+    C_Traits = {
+        GetConfigInfo = function() return { treeIDs = { 1 } } end,
+        GetTreeNodes = function() return {} end,
+        GetNodeInfo = function() end,
+        GetGroupDisplayInfoByTreeID = function()
+            return { { groupID = 1, orderIndex = 0 }, { groupID = 2, orderIndex = 1 } }
+        end,
+        GetGroupCurrencyInfo = function()
+            return { { traitNodeGroupID = 2, currencyInfos = { { spent = 5 } } } }
+        end,
+    }
+    addon.talents.ResetActiveTalentTreeCache()
+    panel:RefreshGearDuckOptions()
+    local roleButton = framesByName.GearDuckFeralRoleButton
+    equal(roleButton.shown, true, "Feral role button is shown for active Feral")
+    equal(roleButton.text, "Feral: Cat", "Feral role button displays current choice")
+    roleButton.OnClick(roleButton)
+    equal(dbA.feralRole, "BEAR", "Feral role choice is saved")
+    equal(roleButton.text, "Feral: Bear", "Feral role button updates immediately")
+    C_ClassTalents, C_Traits = nil, nil
+    currentClassName, currentClassFile = "Warrior", "WARRIOR"
+    addon.talents.ResetActiveTalentTreeCache()
+end
 CreateFrame = originalCreateFrame
 UIDropDownMenu_SetWidth = nil
 UIDropDownMenu_Initialize = nil
@@ -997,18 +1127,18 @@ do
     equal(evaluateSet("item:101").comparisons[1].delta, -6, "non-set replacement accounts for losing equipped set bonus")
 
     equippedBySlot = { [5] = "item:101", [6] = "item:102", [10] = "item:103", [7] = "item:105", [1] = "item:104" }
-    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 4
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 40
     clearSetCache()
     equal(addon.hit.GetItemHitPercent("item:100"), nil, "inactive set hit is not counted as item hit")
     equal(evaluateSet("item:100").comparisons[1].delta, -1, "new set hit is capped with the complete loadout")
-    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 5
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 50
     clearSetCache()
     equal(evaluateSet("item:100").comparisons[1].delta, -4, "set hit above cap adds no PL")
     equippedBySlot[5] = "item:100"
-    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 4
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 40
     clearSetCache()
     equal(evaluateSet("item:101").comparisons[1].delta, 1, "losing active set hit respects the cap")
-    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 5
+    itemData[104].stats.ITEM_MOD_HIT_RATING_SHORT = 50
     clearSetCache()
     equal(evaluateSet("item:101").comparisons[1].delta, 4, "losing excess set hit does not subtract PL")
 
@@ -1203,6 +1333,151 @@ do
     equal(activeText, "+10 Attack Power.", "active green set line is recognized independently of its threshold")
     ITEM_SET_BONUS = originalSetFormat
     ITEM_SET_BONUS_GRAY = originalGrayFormat
+end
+
+do
+    local originalEffects = addon.equipment.GetWeaponTalentEffects
+    addon.equipment.GetWeaponTalentEffects = function()
+        return {
+            [2] = { skill=0, critPercent=0, extraAttackPercent=0, damagePercent=10 },
+            [7] = { skill=0, critPercent=0, extraAttackPercent=0, damagePercent=10 },
+        }
+    end
+    for index, slot in ipairs({
+        "INVTYPE_RANGED", "INVTYPE_RANGEDRIGHT", "INVTYPE_THROWN", "INVTYPE_WEAPON",
+        "INVTYPE_2HWEAPON", "INVTYPE_WEAPONMAINHAND", "INVTYPE_WEAPONOFFHAND",
+    }) do
+        local id = 300 + index
+        local ranged = index <= 3
+        itemData[id] = { equipLocation=slot, classID=2, subclassID=ranged and 2 or 7, stats={} }
+        tooltipLinesByItemID[id] = { { leftText="40 - 60 Damage", rightText="Speed 2.50" } }
+        local score, breakdown = addon.scoring.ScoreItem(database, "item:" .. id,
+            { WeaponDPS=2, RangedWeaponDPS=5 })
+        equal(score, ranged and 110 or 44, slot .. " uses its DPS weight for damage and talent")
+        equal(breakdown[ranged and "RangedWeaponDPS" or "WeaponDPS"].amount, 20, slot .. " DPS breakdown")
+    end
+    addon.equipment.GetWeaponTalentEffects = originalEffects
+
+    local hunter = addon.data.CLASS_TALENT_DEFAULTS.HUNTER
+    equal(hunter.QUEST.TREE_1.RangedWeaponDPS, 9, "BM leveling ranged DPS")
+    equal(hunter.RAID.TREE_2.RangedWeaponDPS, 17, "MM raid ranged DPS")
+    equal(hunter.PVP.TREE_3.RangedWeaponDPS, 11, "survival PvP ranged DPS")
+    equal(addon.data.CLASS_TALENT_DEFAULTS.DRUID.RAID.FERAL_CAT.Expertise, 26, "cat raid expertise")
+    equal(addon.data.CLASS_TALENT_DEFAULTS.MAGE.RAID.TREE_1.Haste, 1.2, "haste preset per rating")
+    equal(addon.data.CLASS_TALENT_DEFAULTS.PALADIN.RAID.TREE_2.Block, 2.4, "block preset per rating")
+    equal(addon.data.CLASS_TALENT_DEFAULTS.PALADIN.RAID.TREE_2.BlockValue, .7, "block value preset")
+    local saved = { Expertise=3, RangedWeaponDPS=4 }
+    addon.profiles.EnsureWeightProfile(saved, hunter.QUEST.TREE_1)
+    equal(saved.Expertise, 3, "saved expertise remains unchanged")
+    equal(saved.RangedWeaponDPS, 4, "saved ranged DPS remains unchanged")
+
+    itemData[310] = { equipLocation="INVTYPE_CHEST", classID=4, subclassID=4, stats={} }
+    tooltipLinesByItemID[310] = {
+        { leftText="Equip: Reduces the chance for your attacks to be Dodged or Parried by 1.2%." },
+        { leftText="Equip: Reduces the chance for your melee attacks to be dodged or parried by 0.3%." },
+        { leftText="(2) Set: Reduces the chance for your attacks to be dodged or parried by 5%." },
+        { leftText="Equip: Reduces the chance for your attacks to be dodged or parried by 2% for 10 sec." },
+    }
+    local expertiseWeights = { Expertise=10 }
+    equal(addon.scoring.ScoreItem(database, "item:310", expertiseWeights), 15,
+        "flat expertise lines exclude set and conditional effects")
+    itemData[310].stats.ITEM_MOD_EXPERTISE_RATING_SHORT = 15
+    equal(addon.scoring.ScoreItem(database, "item:310", expertiseWeights), 15,
+        "expertise tooltip and rating do not double count")
+    itemData[310].stats.ITEM_MOD_EXPERTISE_RATING_SHORT = 20
+    tooltipLinesByItemID[310] = { { leftText="Test item" } }
+    addon.items.ClearCache()
+    GetCombatRatingBonusForCombatRatingValue = function(index, rating)
+        equal(index, 24, "expertise rating conversion uses expertise index")
+        return rating / 5
+    end
+    equal(addon.scoring.ScoreItem(database, "item:310", expertiseWeights), 40, "expertise rating uses client conversion")
+    GetCombatRatingBonusForCombatRatingValue = nil
+    equal(addon.scoring.ScoreItem(database, "item:310", expertiseWeights), 20, "expertise fallback conversion")
+    itemData[310].stats = {
+        ITEM_MOD_HASTE_RATING_SHORT=10, ITEM_MOD_HASTE_MELEE_RATING_SHORT=10,
+        ITEM_MOD_BLOCK_RATING_SHORT=5, ITEM_MOD_BLOCK_VALUE_SHORT=4,
+    }
+    equal(addon.scoring.ScoreItem(database, "item:310", { Haste=2, Block=3, BlockValue=4 }), 51,
+        "haste and block rating and block value score without duplicate haste")
+
+    itemData[316] = { equipLocation="INVTYPE_CHEST", classID=4, subclassID=4, setID=316, stats={} }
+    tooltipLinesByItemID[316] = {
+        { leftText="(2) Set: Reduces the chance for your attacks to be Dodged or Parried by 1.2%." },
+        { leftText="(2) Set: Increases your haste by 1%." },
+        { leftText="(2) Set: Increases your chance to block by 1%." },
+        { leftText="(2) Set: Increases the block value of your shield by 4." },
+    }
+    local bonuses, loaded = addon.sets.GetItemSetBonuses("item:316", database)
+    equal(loaded, true, "new set bonus descriptions are loaded")
+    local setDelta = addon.sets.GetSetBonusDelta(database, 316, {}, { [316]=1 },
+        { Expertise=10, Haste=2, Block=3, BlockValue=4 }, { [316]=bonuses })
+    equal(setDelta, 63, "new set bonuses use the appropriate percentage and rating units")
+
+    local savedLinks = {}
+    for slot, link in pairs(equippedBySlot) do savedLinks[slot] = link end
+    wipe(equippedBySlot)
+    itemData[311] = { equipLocation="INVTYPE_WEAPONMAINHAND", classID=2, subclassID=7, stats={} }
+    itemData[312] = { equipLocation="INVTYPE_WEAPONOFFHAND", classID=2, subclassID=15, stats={} }
+    itemData[313] = { equipLocation="INVTYPE_WEAPONMAINHAND", classID=2, subclassID=0, stats={} }
+    itemData[314] = { equipLocation="INVTYPE_WEAPONOFFHAND", classID=2, subclassID=7, stats={} }
+    itemData[315] = { equipLocation="INVTYPE_CHEST", classID=4, subclassID=4, stats={} }
+    for id = 311, 314 do
+        tooltipLinesByItemID[id] = { { leftText="40 - 60 Damage", rightText="Speed 2.50" } }
+    end
+    tooltipLinesByItemID[315] = {
+        { leftText="Equip: Increased Swords +5." },
+        { leftText="Equip: Increases your skill with Daggers by 4." },
+        { leftText="(2) Set: Increased Axes +30." },
+    }
+    local originalTree = addon.talents.GetActiveTalentTree
+    addon.talents.GetActiveTalentTree = function() return "TREE_1", "Arms", 1 end
+    currentClassName, currentClassFile = "Warrior", "WARRIOR"
+    local skillDB = addon.profiles.NormalizeDatabase({})
+    local skillWeightsDB = addon.profiles.EnsureActivityWeightProfiles(skillDB)
+    local skillWeights = addon.profiles.GetTalentWeightProfile(skillWeightsDB, "WARRIOR", "QUEST", "TREE_1")
+    for key in pairs(skillWeights) do skillWeights[key] = 0 end
+    skillWeights.WeaponSkill = 2
+    skillWeights.Expertise = 10
+    local eval, invalidate = addon.evaluation.Create(skillDB, skillWeightsDB)
+    equippedBySlot[16], equippedBySlot[17] = "item:311", "item:312"
+    equal(eval("item:315").comparisons[1].delta, 18, "tooltip-only skill item matches both weapon types")
+    equippedBySlot[5] = "item:315"
+    invalidate()
+    equal(eval("item:313").comparisons[1].weaponSkillAdjustment, -10, "weapon swap loses matching sword skill")
+    equippedBySlot[17] = "item:314"
+    invalidate()
+    equal(eval("item:313").comparisons[1].weaponSkillAdjustment, 0, "matching offhand retains sword skill once")
+    equippedBySlot[5] = nil
+    itemData[310].stats = {}
+    tooltipLinesByItemID[310] = {
+        { leftText="Equip: Reduces the chance for your attacks to be dodged or parried by 1.2%." },
+    }
+    invalidate()
+    equal(eval("item:310").comparisons[1].delta, 12, "tooltip-only expertise item is evaluated")
+    itemData[310].unloaded = true
+    tooltipLinesByItemID[310] = nil
+    invalidate()
+    equal(eval("item:310"), nil, "unloaded tooltip-only item is not cached as decorative")
+    itemData[310].unloaded = false
+    tooltipLinesByItemID[310] = {
+        { leftText="Equip: Reduces the chance for your attacks to be dodged or parried by 1.2%." },
+    }
+    equal(eval("item:310").comparisons[1].delta, 12, "tooltip-only item is retried after loading")
+    itemData[310].stats = { ITEM_MOD_STRENGTH_SHORT=1 }
+    tooltipLinesByItemID[310] = nil
+    itemData[310].unloaded = true
+    invalidate()
+    equal(eval("item:310").extraStatsPending, true, "missing tooltip marks populated item comparison incomplete")
+    itemData[310].unloaded = false
+    tooltipLinesByItemID[310] = {
+        { leftText="Equip: Reduces the chance for your attacks to be dodged or parried by 1.2%." },
+    }
+    equal(eval("item:310").extraStatsPending, false, "incomplete comparison is retried")
+    equal(eval("item:310").comparisons[1].delta, 12, "retried comparison includes tooltip expertise")
+    addon.talents.GetActiveTalentTree = originalTree
+    wipe(equippedBySlot)
+    for slot, link in pairs(savedLinks) do equippedBySlot[slot] = link end
 end
 
 print(string.format("GearDuck Lua tests passed (%d assertions).", passed))
