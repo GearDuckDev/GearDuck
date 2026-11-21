@@ -460,12 +460,12 @@ data.CLASS_WEAPON_PROFICIENCIES = {
         [17] = 20, [18] = true, [20] = true,
     },
     ROGUE = {
-        [2] = true, [3] = true, [4] = true, [7] = true, [13] = true, [15] = true,
+        [0] = true, [2] = true, [3] = true, [4] = true, [7] = true, [13] = true, [15] = true,
         [16] = true, [18] = true, [20] = true,
     },
     PRIEST = { [4] = true, [10] = true, [15] = true, [19] = true, [20] = true },
     SHAMAN = {
-        [0] = true, [1] = "talent", [4] = true, [5] = "talent", [10] = true,
+        [0] = true, [1] = true, [4] = true, [5] = true, [10] = true,
         [13] = true, [15] = true, [20] = true,
     },
     MAGE = { [7] = true, [10] = true, [15] = true, [19] = true, [20] = true },

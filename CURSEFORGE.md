@@ -7,7 +7,7 @@ compares it with your equipped gear, helping you spot an **Upgrade**,
 **Sidegrade**, or **Downgrade** at a glance. It automatically detects your class
 and active talent tree, then uses independent Questing, Raid, and PvP profiles.
 
-Version **1.2.0-release**, built for **WoW: Forever Beta 1.60.1**
+Version **1.2.1-release**, built for **WoW: Forever Beta 1.60.1**
 (`Interface: 16001`) by **GearDuckDev**.
 
 ***

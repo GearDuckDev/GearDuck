@@ -439,6 +439,29 @@ equal(addon.equipment.CanPlayerDualWield(), true, "warrior at level 60 can dual-
 local warriorSlots = addon.items.GetReplacementSlots("item:8")
 equal(#warriorSlots, 2, "dual-wielder compares 1H weapon against both hands")
 
+do
+    itemData[320] = { equipLocation = "INVTYPE_WEAPON", classID = 2, subclassID = 0, stats = { ITEM_MOD_AGILITY_SHORT = 10 } }
+    itemData[321] = { equipLocation = "INVTYPE_2HWEAPON", classID = 2, subclassID = 1, stats = { ITEM_MOD_STRENGTH_SHORT = 10 } }
+    itemData[322] = { equipLocation = "INVTYPE_2HWEAPON", classID = 2, subclassID = 5, stats = { ITEM_MOD_STRENGTH_SHORT = 10 } }
+    currentClassName, currentClassFile = "Rogue", "ROGUE"
+    equal(addon.equipment.CanPlayerEquipItem("item:320"), true, "rogue can use one-handed axes")
+    clearCache()
+    equal(evaluateItem("item:320").canEquip, true, "rogue axe comparison is usable")
+    equal(#evaluateItem("item:320").slots, 2, "rogue axe compares both hands")
+    equal(addon.equipment.CanPlayerEquipItem("item:321"), false, "rogue still cannot use two-handed axes")
+    currentClassName, currentClassFile = "Shaman", "SHAMAN"
+    addon.equipment.ResetTalentCache()
+    equal(addon.equipment.CanPlayerEquipItem("item:321"), true, "shaman two-handed axe needs no talent")
+    equal(addon.equipment.CanPlayerEquipItem("item:322"), true, "shaman two-handed mace needs no talent")
+    tooltipLinesByItemID[321] = { { leftText = "Classes: Warrior" } }
+    equal(addon.equipment.CanPlayerEquipItem("item:321"), false, "shaman still respects item class restrictions")
+    tooltipLinesByItemID[321] = nil
+    currentClassName, currentClassFile = "Mage", "MAGE"
+    equal(addon.equipment.CanPlayerEquipItem("item:320"), false, "mage still cannot use axes")
+    currentClassName, currentClassFile = "Warrior", "WARRIOR"
+    clearCache()
+end
+
 -- Item-specific class restrictions apply even when the armor type is usable.
 itemData[13] = {
     equipLocation = "INVTYPE_CHEST",

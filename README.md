@@ -2,7 +2,7 @@
 
 GearDuck is a lightweight World of Warcraft: Forever addon that estimates item upgrades from editable, class-based stat weights. It adds a Power Level comparison to item tooltips and provides an in-game options panel for tuning weights.
 
-> **Version:** 1.2.0-release | **Compatibility:** Built for WoW: Forever Beta 1.60.1 (`Interface: 16001`). The addon uses the modern item tooltip post-call API.
+> **Version:** 1.2.1-release | **Compatibility:** Built for WoW: Forever Beta 1.60.1 (`Interface: 16001`). The addon uses the modern item tooltip post-call API.
 
 ## Screenshots
 
@@ -36,7 +36,7 @@ Reopen the in-game guide at any time with `/gd setup`.
 - Detects the talent tree with the most points and selects starter weights for that class/tree combination. Feral Druids choose Cat or Bear in the options panel. Weights are independent within Questing, Raid, and PvP profiles.
 - Factors supported weapon-specific talent effects into matching weapon subclasses.
 - Compares an item against each applicable equipped slot. Rings, trinkets, and one-handed weapons show separate comparisons; classes that cannot dual-wield compare one-handed weapons against the main hand only. Two-handed weapons compare against both weapon slots together, and off-hand items account for removing an equipped two-handed weapon.
-- Checks weapon and armor eligibility using explicit rules for all nine Classic classes; unusable items show `Cannot Use` instead of upgrade comparisons. Includes item-specific class restrictions (such as Shaman-only gear), level-20 polearm training, level-40 mail/plate unlocks, Shaman's two-handed weapon talent, and item required-level checks.
+- Checks weapon and armor eligibility using explicit rules for all nine classes; unusable items show `Cannot Use` instead of upgrade comparisons. Includes Forever's Rogue one-handed axes and Shaman two-handed axes and maces, item-specific class restrictions, level-20 polearm training, level-40 mail/plate unlocks, and item required-level checks.
 - Labels comparisons as upgrades, sidegrades, or downgrades.
 - Includes weapon DPS and weapon speed in scoring when the item tooltip exposes damage and speed values, including speed displayed on the right side of a damage line and weapons without primary stats.
 - Shows a small up arrow on visible item icons when an item is equippable and is an upgrade in at least one selected profile. Arrows are enabled by default and can be toggled in the options panel. Character and inspect equipment panes are excluded. Baganator category-view bags use its corner-widget API, while Blizzard individual and combined bags use the default UI's item-button enumerators and bounded refreshes after opening/updating. Other supported item panels refresh on bank, mail, quest, trade, and merchant updates, including buyback items. Item evaluations and equipped state are cached and recalculated when equipment, level, talents, or weights change; comparisons using unloaded equipped items are not cached.
@@ -149,4 +149,4 @@ Recognized English item weapon-skill bonuses are scored only for equipped weapon
 
 The hit-cap scan recognizes selected Forever talent names and rank values, including Precision, Surefooted, Shadow Focus, Suppression, Nature's Reach, and Nature's Guidance. School-specific hit and dual-wield hit remain approximations. The weapon-talent scan includes a limited set of older specialization names and Hunter ranged-weapon specialization; effects that changed in Forever may not be recognized. Classic racial weapon-skill bonuses are not applied. The model does not simulate rotations, proc interactions, or encounter-specific uptime. Other proc/use effects and unsupported set bonuses require manual values; proc-only enchant value can be set separately.
 
-Equipability uses hard-coded class proficiency rules rather than the client equipability API. It assumes a character has trained weapon types that their class can learn; it does not inspect learned weapon-skill lines. Item class restrictions, polearm and armor-level gates, the Shaman talent, and item required levels are checked explicitly. The proficiency rules may not include all Forever changes.
+Equipability uses hard-coded class proficiency rules rather than the client equipability API. It assumes a character has trained weapon types that their class can learn; it does not inspect learned weapon-skill lines. Item class restrictions, polearm and armor-level gates, and item required levels are checked explicitly. Shaman dual wield remains talent-gated in the addon, but its availability in Forever is unconfirmed; the proficiency rules may not include all changes.

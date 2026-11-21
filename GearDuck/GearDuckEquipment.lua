@@ -6,12 +6,10 @@ addon.equipment = equipment
 local data = addon.data
 local talents = addon.talents
 local weaponTalentEffectsCache
-local shamanTwoHandedWeaponTalentActive = false
 local shamanDualWieldTalentActive = false
 
 function equipment.ResetTalentCache()
     weaponTalentEffectsCache = nil
-    shamanTwoHandedWeaponTalentActive = false
     shamanDualWieldTalentActive = false
 end
 
@@ -21,7 +19,6 @@ function equipment.GetWeaponTalentEffects()
     end
 
     local bonuses = {}
-    shamanTwoHandedWeaponTalentActive = false
     shamanDualWieldTalentActive = false
 
     local function GetSubclassBonus(subclassID)
@@ -49,9 +46,7 @@ function equipment.GetWeaponTalentEffects()
         local normalizedTalentName = string.lower(talentName or ""):gsub("%W", "")
         local numericRank = tonumber(rank) or 0
         if classFile == "SHAMAN" and numericRank > 0 then
-            if normalizedTalentName == "twohandedaxesandmaces" then
-                shamanTwoHandedWeaponTalentActive = true
-            elseif normalizedTalentName == "dualwield" then
+            if normalizedTalentName == "dualwield" then
                 shamanDualWieldTalentActive = true
             end
         end
@@ -171,12 +166,7 @@ function equipment.CanPlayerEquipItem(itemLink)
         local proficiencies = data.CLASS_WEAPON_PROFICIENCIES[classFile]
         local proficiency = subClassID and proficiencies and proficiencies[subClassID]
         local weaponName = data.WEAPON_SUBCLASS_NAMES[subClassID] or "this weapon type"
-        if proficiency == "talent" then
-            equipment.GetWeaponTalentEffects()
-            if classFile ~= "SHAMAN" or not shamanTwoHandedWeaponTalentActive then
-                return false, "Requires the Two-Handed Axes and Maces talent"
-            end
-        elseif type(proficiency) == "number" and playerLevel < proficiency then
+        if type(proficiency) == "number" and playerLevel < proficiency then
             return false, string.format("%s training requires level %d", weaponName, proficiency)
         elseif not proficiency then
             return false, string.format("%s cannot equip %s", className or "This class", weaponName)
